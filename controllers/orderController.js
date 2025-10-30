@@ -337,3 +337,52 @@ exports.cancelOrder = asyncHandler(async (req, res, next) => {
         data: { order }
     });
 });
+
+// ✅ Get all orders (admin with optional filters)
+exports.getAllOrders = asyncHandler(async (req, res, next) => {
+    const { status } = req.query;
+    const filter = {};
+    if (status) filter.status = status;
+    const orders = await Order.find(filter)
+      .populate('userId', 'name email')
+      .populate('storeId', 'storeName')
+      .sort({ createdAt: -1 });
+    res.status(200).json({ success: true, total: orders.length, orders });
+});
+
+// ✅ Get single order (owner or admin/delivery)
+exports.getOrderById = asyncHandler(async (req, res, next) => {
+    const order = await Order.findById(req.params.id)
+      .populate('userId', 'name email')
+      .populate('storeId', 'storeName')
+      .populate('items.menuItemId', 'name price');
+    if (!order) return next(new AppError('Order not found', 404));
+
+    const isOwner = order.userId && order.userId._id.toString() === req.user._id.toString();
+    const isAdmin = req.user.role === 'admin';
+    const isDelivery = req.user.role === 'delivery';
+    const isStoreOwner = req.user.role === 'storeOwner';
+    if (!isOwner && !isAdmin && !isDelivery && !isStoreOwner) {
+        return next(new AppError('Not authorized to view this order', 403));
+    }
+    res.status(200).json({ success: true, order });
+});
+
+// ✅ Admin/Delivery status update (no store ownership requirement)
+exports.updateOrderStatusAdmin = asyncHandler(async (req, res, next) => {
+    const { status } = req.body;
+    const validStatuses = [
+        "Pending", "Confirmed", "OutForDelivery", 
+        "Delivered", "Cancelled", "Rejected"
+    ];
+    if (!validStatuses.includes(status)) {
+        return next(new AppError('Invalid order status', 400));
+    }
+    const updated = await Order.findByIdAndUpdate(
+        req.params.id,
+        { status },
+        { new: true, runValidators: true }
+    ).populate('userId', 'name email').populate('storeId', 'storeName');
+    if (!updated) return next(new AppError('Order not found', 404));
+    res.status(200).json({ success: true, message: `Order status updated to ${status}`, order: updated });
+});

@@ -172,3 +172,68 @@ exports.googleAuth = asyncHandler(async (req, res, next) => {
         return next(new AppError('Google authentication failed: ' + error.message, 401));
     }
 });
+
+// ✅ Get current user profile
+exports.getMe = asyncHandler(async (req, res, next) => {
+    const user = await User.findById(req.user._id);
+    if (!user) return next(new AppError('User not found', 404));
+    res.status(200).json({
+        success: true,
+        user: {
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            phone: user.phone,
+            address: user.address,
+        }
+    });
+});
+
+// ✅ Update current user profile
+exports.updateProfile = asyncHandler(async (req, res, next) => {
+    const allowed = ['name', 'phone', 'address'];
+    const updates = {};
+    allowed.forEach((k) => {
+        if (req.body[k] !== undefined) updates[k] = req.body[k];
+    });
+
+    const user = await User.findByIdAndUpdate(req.user._id, updates, { new: true, runValidators: true });
+    if (!user) return next(new AppError('User not found', 404));
+    res.status(200).json({
+        success: true,
+        user: {
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            phone: user.phone,
+            address: user.address,
+        }
+    });
+});
+
+// ✅ Change password
+exports.changePassword = asyncHandler(async (req, res, next) => {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+        return next(new AppError('currentPassword and newPassword are required', 400));
+    }
+
+    const user = await User.findById(req.user._id).select('+password');
+    if (!user) return next(new AppError('User not found', 404));
+
+    const ok = await user.correctPassword(currentPassword);
+    if (!ok) return next(new AppError('Current password is incorrect', 400));
+
+    user.password = newPassword;
+    await user.save();
+
+    res.status(200).json({ success: true, message: 'Password updated successfully' });
+});
+
+// ✅ Delete account
+exports.deleteAccount = asyncHandler(async (req, res, next) => {
+    await User.findByIdAndDelete(req.user._id);
+    res.status(204).json({ success: true, data: null });
+});

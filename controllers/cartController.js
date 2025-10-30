@@ -359,6 +359,14 @@ exports.updateCartQuantity = asyncHandler(async (req, res, next) => {
   res.status(200).json({ success: true, message: 'Quantity updated', data: cart });
 });
 
+// Update quantity via path param (compat route)
+exports.updateCartQuantityById = asyncHandler(async (req, res, next) => {
+  const menuItemId = req.params.itemId;
+  const { quantity } = req.body;
+  req.body.menuItemId = menuItemId;
+  return exports.updateCartQuantity(req, res, next);
+});
+
 // REMOVE FROM CART
 exports.removeFromCart = asyncHandler(async (req, res, next) => {
   const { menuItemId } = req.body;
@@ -378,6 +386,12 @@ exports.removeFromCart = asyncHandler(async (req, res, next) => {
   await cart.populate('items.menuItemId', 'name price images storeId');
 
   res.status(200).json({ success: true, message: 'Item removed', data: cart });
+});
+
+// Remove via path param (compat route)
+exports.removeFromCartById = asyncHandler(async (req, res, next) => {
+  req.body.menuItemId = req.params.itemId;
+  return exports.removeFromCart(req, res, next);
 });
 
 // ✅ Apply discount to cart
@@ -498,6 +512,24 @@ exports.cleanCart = asyncHandler(async (req, res, next) => {
       removedItems: removedCount,
     },
   }); 
+});
+
+// Clear entire cart
+exports.clearCart = asyncHandler(async (req, res, next) => {
+  const userId = req.user?._id;
+  if (!userId) return next(new AppError('Login required', 401));
+  const cart = await Cart.findOne({ userId });
+  if (!cart) {
+    return res.status(200).json({ success: true, message: 'Cart already empty' });
+  }
+  cart.items = [];
+  cart.totalItems = 0;
+  cart.totalAmount = 0;
+  cart.discount = null;
+  cart.deliveryCharge = 0;
+  cart.finalAmount = 0;
+  await cart.save();
+  res.status(200).json({ success: true, message: 'Cart cleared', data: cart });
 });
 
 exports.getCartStatus = asyncHandler(async (req, res, next) => {

@@ -6,6 +6,8 @@ const customerRoutes=require('./routes/customerRoutes');
 const app=express();
 const storeOwnerRoutes=require('./routes/storeOwnerRoutes');
 const authRoutes=require('./routes/authRoutes');
+const swaggerUi = require('swagger-ui-express');
+const { swaggerSpec } = require('./docs/swagger');
 
 const allowedOrigins = [
   "https://tommalu.netlify.app", // Production frontend
@@ -35,15 +37,19 @@ app.use(express.json());
 app.use('/api/customer',customerRoutes);
 app.use('/api/storeOwner',storeOwnerRoutes);
 app.use('/api/auth',authRoutes);
+app.use('/api/orders', require('./routes/orderRoutes'));
 app.use('/api/cart', require('./routes/cartRoutes'));
 app.use('/api/public', require('./routes/publicRoutes'));
+app.use('/api/categories', require('./routes/categoryRoutes'));
+app.use('/api/products', require('./routes/productRoutes'));
+
+// Swagger UI
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, { explorer: true }));
 
 app.use((err, req, res, next) => {
   res.status(res.statusCode || 500).json({
     message: err.message,
   });
 });
-
-
 
 module.exports=app;
