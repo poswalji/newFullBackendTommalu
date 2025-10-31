@@ -44,8 +44,25 @@ app.use('/api/public', require('./routes/publicRoutes'));
 app.use('/api/categories', require('./routes/categoryRoutes'));
 app.use('/api/products', require('./routes/productRoutes'));
 
-// Swagger UI
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, { explorer: true }));
+// Swagger UI JSON (for direct spec access and stable URL resolution on serverless hosts)
+app.get('/api-docs.json', (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.send(swaggerSpec);
+});
+
+// Swagger UI (serve static assets in a way that works well on serverless)
+const swaggerUiOptions = {
+  explorer: true,
+  swaggerOptions: {
+    url: '/api-docs.json',
+  },
+};
+
+app.use(
+  '/api-docs',
+  swaggerUi.serveFiles(swaggerSpec, swaggerUiOptions),
+  swaggerUi.setup(swaggerSpec, swaggerUiOptions)
+);
 
 app.use((err, req, res, next) => {
   res.status(res.statusCode || 500).json({
