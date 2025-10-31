@@ -98,8 +98,10 @@ exports.createOrder = asyncHandler(async(req, res, next) => {
         return next(new AppError('Missing required fields or invalid data', 400));
     }
 
-    // Get storeId from the first menu item
-    const menuItem = await Menu.findById(items[0].menuId); 
+    // Get storeId from the first menu item (support menuItemId or menuId)
+    const firstItem = items[0] || {};
+    const firstMenuId = firstItem.menuItemId || firstItem.menuId;
+    const menuItem = await Menu.findById(firstMenuId);
     if (!menuItem) {
         return next(new AppError("Menu item not found", 404));
     }

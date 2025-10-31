@@ -149,6 +149,30 @@ const storeSchema = new mongoose.Schema({
   },
   verificationNotes: { // Admin can add notes for verification
     type: String
+  },
+
+  // ✅ Store lifecycle status for admin verification & moderation
+  status: {
+    type: String,
+    enum: [
+      'draft',
+      'submitted',
+      'pendingApproval',
+      'approved',
+      'active',
+      'rejected',
+      'suspended'
+    ],
+    default: 'draft'
+  },
+  rejectionReason: { type: String },
+
+  // ✅ Commission rate set by admin (percentage 0-100)
+  commissionRate: {
+    type: Number,
+    min: 0,
+    max: 100,
+    default: 10
   }
 
 }, { 

@@ -18,7 +18,7 @@ exports.getStoreOwner = asyncHandler(async (req, res, next) => {
         return next(new AppError('User not found', 404));
     }
 
-    if (user.role !== 'store_owner') { // Consistent role naming
+    if (user.role !== 'storeOwner') { // Consistent role naming
         return next(new AppError('User is not a store owner', 400));
     }
 
@@ -91,7 +91,7 @@ exports.createStore = asyncHandler(async (req, res, next) => {
     const ownerId = req.user._id;
     
     // Check if user is store owner
-    if (req.user.role !== 'store_owner') {
+    if (req.user.role !== 'storeOwner') {
         return next(new AppError('Only store owners can create stores', 403));
     }
 

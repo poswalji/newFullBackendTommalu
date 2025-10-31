@@ -46,6 +46,27 @@ exports.restrictTo = (...roles) => {
     };
 };
 
+// ✅ Require admin (any admin sub-role)
+exports.requireAdmin = (req, res, next) => {
+    if (req.user.role !== 'admin') {
+        return next(new AppError('Admin access required', 403));
+    }
+    next();
+};
+
+// ✅ Restrict admin to specific sub-roles
+exports.restrictAdminTo = (...adminRoles) => {
+    return (req, res, next) => {
+        if (req.user.role !== 'admin') {
+            return next(new AppError('Admin access required', 403));
+        }
+        if (adminRoles.length && !adminRoles.includes(req.user.adminRole)) {
+            return next(new AppError('Insufficient admin privileges', 403));
+        }
+        next();
+    };
+};
+
 // ✅ Optional: Check if user owns the resource
 exports.checkOwnership = (model) => {
     return asyncHandler(async (req, res, next) => {

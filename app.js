@@ -37,6 +37,7 @@ app.use(express.json());
 app.use('/api/customer',customerRoutes);
 app.use('/api/storeOwner',storeOwnerRoutes);
 app.use('/api/auth',authRoutes);
+app.use('/api/admin', require('./routes/adminRoutes'));
 app.use('/api/orders', require('./routes/orderRoutes'));
 app.use('/api/cart', require('./routes/cartRoutes'));
 app.use('/api/public', require('./routes/publicRoutes'));
