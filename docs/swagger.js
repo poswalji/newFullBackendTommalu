@@ -10,6 +10,17 @@ const swaggerOptions = {
       version: '1.0.0',
       description: 'API documentation for Tommalu backend',
     },
+    plugins: [
+      new CopyWebpackPlugin({
+          patterns: [
+              { from: "./node_modules/swagger-ui-dist/swagger-ui.css", to: "." },
+              { from: "./node_modules/swagger-ui-dist/swagger-ui-bundle.js", to: "." },
+              { from: "./node_modules/swagger-ui-dist/swagger-ui-standalone-preset.js", to: "." },
+              { from: "./node_modules/swagger-ui-dist/favicon-16x16.png", to: "." },
+              { from: "./node_modules/swagger-ui-dist/favicon-32x32.png", to: "." },
+          ]
+      })
+  ],
     servers: [
       { url: 'http://localhost:3000', description: 'Local dev' },
       // Dynamically add Vercel URL if present
