@@ -1,0 +1,281 @@
+Tommalu API - Text Docs (OpenAPI-aligned)
+
+Auth
+- POST /api/auth/register
+  Auth: none
+  Desc: Register a new user (customer/storeOwner/admin).
+  Body (application/json):
+    {
+      name: string, email: string (email), password: string,
+      role: 'customer'|'storeOwner'|'admin', phone?: string,
+      addresses?: [{ label?: 'Home'|'Work'|'Other', street: string, city: string, state?: string, pincode: string, country?: string, isDefault?: boolean }]
+    }
+  Responses: 201 Created
+
+- POST /api/auth/login
+  Auth: none
+  Desc: Login with email and password.
+  Body (application/json): { email: string, password: string }
+  Responses: 200 OK
+
+- POST /api/auth/logout
+  Auth: bearer (optional)
+  Desc: Logout current user.
+  Body: none
+  Responses: 200 OK
+
+- POST /api/auth/google
+  Auth: none
+  Desc: Login/Register via Google token.
+  Body (application/json): { token: string }
+  Responses: 200 OK
+
+- GET /api/auth/me
+  Auth: bearer
+  Desc: Get current user profile.
+  Parameters: none
+  Responses: 200 OK
+
+- PUT /api/auth/update
+  Auth: bearer
+  Desc: Update user details.
+  Body (application/json): { name?: string, phone?: string, addresses?: [...] }
+  Responses: 200 OK
+
+- PUT /api/auth/change-password
+  Auth: bearer
+  Desc: Change user password.
+  Body (application/json): { currentPassword: string, newPassword: string }
+  Responses: 200 OK
+
+- DELETE /api/auth/delete
+  Auth: bearer
+  Desc: Delete current user account.
+  Body: none
+  Responses: 204 No Content
+
+Public
+- GET /api/public/stores
+  Auth: none
+  Desc: List available stores.
+  Query: { page?: number, limit?: number, category?: string, isOpen?: boolean, minRating?: number }
+  Responses: 200 OK
+
+- GET /api/public/stores/{storeId}/menu
+  Auth: none
+  Desc: Get menu for a store.
+  Path: { storeId: string }
+  Responses: 200 OK
+
+- GET /api/public/stores/search
+  Auth: none
+  Desc: Search stores.
+  Query: { q?: string, category?: string, isOpen?: boolean, minRating?: number, page?: number, limit?: number }
+  Responses: 200 OK
+
+Orders (Customer/Admin/Delivery)
+- POST /api/orders
+  Auth: bearer (customer)
+  Desc: Create an order. Supports menuItemId or menuId in items.
+  Body (application/json):
+    {
+      items: [{ menuItemId?: string, menuId?: string, itemName?: string, quantity?: number, itemPrice?: number }],
+      discount?: number, promoCode?: string, finalPrice: number,
+      deliveryAddress: { label?: 'Home'|'Work'|'Other', street: string, city: string, state?: string, pincode: string, country?: string }
+    }
+  Responses: 201 Created
+
+- GET /api/orders
+  Auth: bearer (customer)
+  Desc: Get authenticated customer’s order history.
+  Query: none
+  Responses: 200 OK
+
+- GET /api/orders/{id}
+  Auth: bearer (owner/admin/delivery/storeOwner)
+  Desc: Get order details if authorized.
+  Path: { id: string }
+  Responses: 200 OK
+
+- PUT /api/orders/{id}/status
+  Auth: bearer (admin or delivery)
+  Desc: Update order status.
+  Path: { id: string }
+  Body (application/json): { status: 'Pending'|'Confirmed'|'OutForDelivery'|'Delivered'|'Cancelled'|'Rejected' }
+  Responses: 200 OK
+
+- GET /api/orders/admin
+  Auth: bearer (admin)
+  Desc: List all orders.
+  Query: { status?: 'Pending'|'Confirmed'|'OutForDelivery'|'Delivered'|'Cancelled'|'Rejected' }
+  Responses: 200 OK
+
+Store Owner (role=storeOwner, bearer required)
+- GET /api/store-owner/profile
+  Desc: Current store owner profile.
+  Responses: 200 OK
+
+- GET /api/store-owner/stores
+  Desc: List stores owned by the user.
+  Query: none
+  Responses: 200 OK
+
+- POST /api/store-owner/stores
+  Desc: Create a new store; goes through verification.
+  Body (application/json):
+    {
+      storeName: string, address: string, phone: string,
+      licenseNumber: string, licenseType: 'FSSAI'|'GST'|'Shop Act'|'Trade License'|'Other',
+      category: 'Restaurant'|'Grocery Store'|'Bakery'|'Pharmacy'|'Vegetable & Fruits'|'Meat & Fish'|'Dairy'|'Other',
+      description?: string, openingTime?: string, closingTime?: string,
+      deliveryFee?: number, minOrder?: number
+    }
+  Responses: 201 Created
+
+- GET /api/store-owner/stores/{id}
+  Desc: Get a specific store by ID.
+  Path: { id: string }
+  Responses: 200 OK
+
+- PATCH /api/store-owner/stores/{id}
+  Desc: Update editable store fields.
+  Path: { id: string }
+  Body (application/json): { any editable store fields }
+  Responses: 200 OK
+
+- DELETE /api/store-owner/stores/{id}
+  Desc: Delete a store and its menu items.
+  Path: { id: string }
+  Responses: 200 OK
+
+- PATCH /api/store-owner/stores/{id}/toggle-status
+  Desc: Toggle store open/closed.
+  Path: { id: string }
+  Responses: 200 OK
+
+- GET /api/store-owner/stores/{storeId}/menu
+  Desc: Get menu items for a store.
+  Path: { storeId: string }
+  Responses: 200 OK
+
+- POST /api/store-owner/stores/{storeId}/menu
+  Desc: Add a menu item (image upload supported).
+  Path: { storeId: string }
+  Body (multipart/form-data):
+    {
+      name: string, price: number, category?: string, description?: string,
+      available?: boolean, stockQuantity?: number, image?: binary
+    }
+  Responses: 201 Created
+
+- PATCH /api/store-owner/menu/{menuItemId}
+  Desc: Update a menu item (image upload supported).
+  Path: { menuItemId: string }
+  Body (multipart/form-data): { name?: string, price?: number, category?: string, description?: string, image?: binary }
+  Responses: 200 OK
+
+- DELETE /api/store-owner/menu/{menuItemId}
+  Desc: Delete a menu item.
+  Path: { menuItemId: string }
+  Responses: 200 OK
+
+- PATCH /api/store-owner/menu/{menuItemId}/toggle-availability
+  Desc: Toggle a menu item’s availability.
+  Path: { menuItemId: string }
+  Responses: 200 OK
+
+- GET /api/store-owner/orders
+  Desc: List orders across owner’s stores.
+  Responses: 200 OK
+
+- PATCH /api/store-owner/orders/{orderId}/status
+  Desc: Update order status; optional reasons.
+  Path: { orderId: string }
+  Body (application/json):
+    { status: 'Pending'|'Confirmed'|'OutForDelivery'|'Delivered'|'Cancelled'|'Rejected', rejectionReason?: string, cancellationReason?: string }
+  Responses: 200 OK
+
+Admin (role=admin; adminRole enforced per endpoint)
+- GET /api/admin/users
+  Roles: superAdmin, supportAdmin
+  Desc: List users with filters.
+  Query: { page?: number, limit?: number, role?: 'customer'|'storeOwner'|'admin'|'delivery', status?: 'active'|'suspended', city?: string, phone?: string }
+  Responses: 200 OK
+
+- PATCH /api/admin/users/{id}/suspend
+  Roles: superAdmin
+  Desc: Suspend a user.
+  Path: { id: string }
+  Responses: 200 OK
+
+- PATCH /api/admin/users/{id}/reactivate
+  Roles: superAdmin
+  Desc: Reactivate a user.
+  Path: { id: string }
+  Responses: 200 OK
+
+- POST /api/admin/users/{id}/reset-password
+  Roles: superAdmin
+  Desc: Reset a user’s password.
+  Path: { id: string }
+  Body (application/json): { newPassword: string }
+  Responses: 200 OK
+
+- GET /api/admin/users/{id}/history/orders
+  Roles: superAdmin, supportAdmin
+  Desc: Get a user’s order history.
+  Path: { id: string }
+  Responses: 200 OK
+
+- GET /api/admin/users/{id}/history/transactions
+  Roles: superAdmin, supportAdmin
+  Desc: Get a user’s transactions (if implemented).
+  Path: { id: string }
+  Responses: 200 OK
+
+- GET /api/admin/stores/pending
+  Roles: superAdmin, supportAdmin
+  Desc: List stores pending verification.
+  Responses: 200 OK
+
+- POST /api/admin/stores/{id}/approve
+  Roles: superAdmin
+  Desc: Approve a store.
+  Path: { id: string }
+  Responses: 200 OK
+
+- POST /api/admin/stores/{id}/reject
+  Roles: superAdmin
+  Desc: Reject a store.
+  Path: { id: string }
+  Body (application/json): { reason?: string }
+  Responses: 200 OK
+
+- PATCH /api/admin/stores/{id}/suspend
+  Roles: superAdmin
+  Desc: Suspend a store.
+  Path: { id: string }
+  Responses: 200 OK
+
+- PATCH /api/admin/stores/{id}/metadata
+  Roles: superAdmin
+  Desc: Update store metadata.
+  Path: { id: string }
+  Body (application/json): { category?: string, description?: string, openingTime?: string, closingTime?: string, deliveryFee?: number, minOrder?: number }
+  Responses: 200 OK
+
+- PATCH /api/admin/stores/{id}/commission
+  Roles: superAdmin
+  Desc: Update store commission.
+  Path: { id: string }
+  Body (application/json): { commissionRate: number (0-100) }
+  Responses: 200 OK
+
+Security Schemes (Swagger components)
+- bearerAuth (HTTP Bearer, JWT)
+- cookieAuth (apiKey in cookie: jwt)
+
+Notes
+- Store lifecycle: draft → submitted → pendingApproval → approved → active → rejected/suspended
+- Order statuses: Pending, Confirmed, OutForDelivery, Delivered, Cancelled, Rejected
+- Roles: customer, storeOwner, admin, delivery; adminRole: superAdmin, supportAdmin
