@@ -62,6 +62,13 @@ async function start() {
     app.use("/api/disputes", require("./routes/disputeRoutes"));
     app.use("/api/payouts", require("./routes/payoutRoutes"));
 
+    // 404 handler for undefined routes - must be after all routes but before error middleware
+    app.use((req, res, next) => {
+      const err = new Error(`Route ${req.originalUrl} not found`);
+      err.statusCode = 404;
+      next(err);
+    });
+
     app.listen(PORT, () => {
       info(`🚀 Server running on port ${PORT}`, {
         port: PORT,

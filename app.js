@@ -72,13 +72,6 @@ app.use(
   swaggerUi.setup(swaggerSpec, swaggerUiOptions)
 );
 
-// 404 handler for undefined routes - must be before error middleware
-app.use('*', (req, res, next) => {
-  const err = new Error(`Route ${req.originalUrl} not found`);
-  err.statusCode = 404;
-  next(err);
-});
-
 // Error middleware - must be last middleware
 app.use((err, req, res, next) => {
   // Determine status code
