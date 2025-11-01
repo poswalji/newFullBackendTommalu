@@ -15,6 +15,7 @@ const app = express();
 const mongoUri = process.env.MONGO_URI;
 mongoose.set("strictQuery", true);
 mongoose.set("bufferCommands", false);
+mongoose.set("bufferMaxEntries", 0); // Disable Mongoose buffering
 
 // Global error handlers - must be defined before routes
 process.on('unhandledRejection', (reason, promise) => {
@@ -114,8 +115,6 @@ const connectDB = async () => {
       serverSelectionTimeoutMS: 30000, // Increased timeout for serverless
       socketTimeoutMS: 45000,
       maxPoolSize: 10,
-      bufferCommands: false,
-      bufferMaxEntries: 0,
     }).then(() => {
       info("✅ Database connected successfully 👍", {
         database: mongoose.connection.name,
