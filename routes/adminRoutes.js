@@ -284,6 +284,38 @@ router.patch('/stores/:id/metadata', restrictAdminTo('superAdmin'), adminControl
  */
 router.patch('/stores/:id/commission', restrictAdminTo('superAdmin'), adminController.updateStoreCommission);
 
+// Analytics & Reports
+router.get('/analytics/dashboard', restrictAdminTo('superAdmin', 'supportAdmin'), adminController.getDashboardAnalytics);
+router.get('/analytics/orders', restrictAdminTo('superAdmin', 'supportAdmin'), adminController.getOrderAnalytics);
+router.get('/analytics/stores', restrictAdminTo('superAdmin', 'supportAdmin'), adminController.getStoreAnalytics);
+router.get('/analytics/revenue', restrictAdminTo('superAdmin'), adminController.getRevenueAnalytics);
+router.get('/reports/export', restrictAdminTo('superAdmin', 'supportAdmin'), adminController.exportReport);
+
+// Menu Oversight
+router.get('/menu/items', restrictAdminTo('superAdmin', 'supportAdmin'), adminController.listMenuItems);
+router.get('/menu/items/:id', restrictAdminTo('superAdmin', 'supportAdmin'), adminController.getMenuItemById);
+router.patch('/menu/items/:id/disable', restrictAdminTo('superAdmin'), adminController.disableMenuItem);
+
+// Dispute Resolution
+router.get('/disputes', restrictAdminTo('superAdmin', 'supportAdmin'), adminController.listDisputes);
+router.get('/disputes/:id', restrictAdminTo('superAdmin', 'supportAdmin'), adminController.getDisputeById);
+router.post('/disputes/:id/resolve', restrictAdminTo('superAdmin'), adminController.resolveDispute);
+router.post('/disputes/:id/escalate', restrictAdminTo('superAdmin'), adminController.escalateDispute);
+router.post('/disputes/:id/close', restrictAdminTo('superAdmin', 'supportAdmin'), adminController.closeDispute);
+
+// Payout Management
+router.get('/payouts', restrictAdminTo('superAdmin'), adminController.listPayouts);
+router.get('/payouts/:id', restrictAdminTo('superAdmin'), adminController.getPayoutById);
+router.post('/payouts/generate', restrictAdminTo('superAdmin'), adminController.generatePayout);
+router.post('/payouts/:id/approve', restrictAdminTo('superAdmin'), adminController.approvePayout);
+router.post('/payouts/:id/complete', restrictAdminTo('superAdmin'), adminController.completePayout);
+
+// Order Override
+router.post('/orders/:id/cancel', restrictAdminTo('superAdmin'), adminController.cancelOrderAdmin);
+
+// All Stores (with filters)
+router.get('/stores', restrictAdminTo('superAdmin', 'supportAdmin'), adminController.listAllStores);
+
 module.exports = router;
 
 

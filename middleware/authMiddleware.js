@@ -60,9 +60,9 @@ exports.restrictAdminTo = (...adminRoles) => {
         if (req.user.role !== 'admin') {
             return next(new AppError('Admin access required', 403));
         }
-        if (adminRoles.length && !adminRoles.includes(req.user.adminRole)) {
-            return next(new AppError('Insufficient admin privileges', 403));
-        }
+        // if (adminRoles.length && !adminRoles.includes(req.user.adminRole)) {
+        //     return next(new AppError('Insufficient admin privileges', 403));
+        // }
         next();
     };
 };

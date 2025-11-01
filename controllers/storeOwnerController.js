@@ -25,13 +25,12 @@ exports.getStoreOwner = asyncHandler(async (req, res, next) => {
     res.status(200).json({
         success: true,
         data: {
-            user: {
-                _id: user._id,
-                name: user.name,
-                email: user.email,
-                phone: user.phone,
-                stores: user.stores
-            }
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            phone: user.phone,
+            role: user.role,
+            stores: user.stores || []
         }
     });
 });
@@ -75,13 +74,30 @@ exports.getAllStores = asyncHandler(async (req, res) => {
 
     res.status(200).json({
         success: true,
-        data: {
-            stores,
-            pagination: {
-                current: options.page,
-                pages: Math.ceil(total / options.limit),
-                total
-            }
+        data: stores.map(store => ({
+            id: store._id,
+            storeName: store.storeName,
+            address: store.address,
+            phone: store.phone,
+            category: store.category,
+            description: store.description,
+            deliveryTime: store.deliveryTime,
+            minOrder: store.minOrder,
+            openingTime: store.openingTime,
+            closingTime: store.closingTime,
+            deliveryFee: store.deliveryFee,
+            isOpen: store.isOpen,
+            rating: store.rating,
+            totalReviews: store.totalReviews,
+            isVerified: store.isVerified,
+            status: store.status,
+            menu: store.menu
+        })),
+        pagination: {
+            page: options.page,
+            pages: Math.ceil(total / options.limit),
+            limit: options.limit,
+            total
         }
     });
 });
@@ -149,7 +165,25 @@ exports.createStore = asyncHandler(async (req, res, next) => {
     res.status(201).json({
         success: true,
         message: 'Store created successfully. Waiting for verification.',
-        data: { store }
+        data: {
+            id: store._id,
+            storeName: store.storeName,
+            address: store.address,
+            phone: store.phone,
+            licenseNumber: store.licenseNumber,
+            licenseType: store.licenseType,
+            category: store.category,
+            description: store.description,
+            deliveryTime: store.deliveryTime,
+            minOrder: store.minOrder,
+            openingTime: store.openingTime,
+            closingTime: store.closingTime,
+            deliveryFee: store.deliveryFee,
+            status: store.status,
+            isVerified: store.isVerified,
+            ownerId: store.ownerId,
+            createdAt: store.createdAt
+        }
     });
 });
 
@@ -195,7 +229,27 @@ exports.updateStore = asyncHandler(async (req, res, next) => {
     res.status(200).json({
         success: true,
         message: 'Store updated successfully',
-        data: { store: updatedStore }
+        data: {
+            id: updatedStore._id,
+            storeName: updatedStore.storeName,
+            address: updatedStore.address,
+            phone: updatedStore.phone,
+            licenseNumber: updatedStore.licenseNumber,
+            licenseType: updatedStore.licenseType,
+            category: updatedStore.category,
+            description: updatedStore.description,
+            deliveryTime: updatedStore.deliveryTime,
+            minOrder: updatedStore.minOrder,
+            openingTime: updatedStore.openingTime,
+            closingTime: updatedStore.closingTime,
+            deliveryFee: updatedStore.deliveryFee,
+            status: updatedStore.status,
+            isVerified: updatedStore.isVerified,
+            ownerId: updatedStore.ownerId,
+            menu: updatedStore.menu,
+            createdAt: updatedStore.createdAt,
+            updatedAt: updatedStore.updatedAt
+        }
     });
 });
 
@@ -269,13 +323,25 @@ exports.searchStores = asyncHandler(async (req, res, next) => {
 
     res.status(200).json({
         success: true,
-        data: {
-            stores,
-            pagination: {
-                current: parseInt(page),
-                pages: Math.ceil(total / limit),
-                total
-            }
+        data: stores.map(store => ({
+            id: store._id,
+            storeName: store.storeName,
+            address: store.address,
+            phone: store.phone,
+            category: store.category,
+            deliveryTime: store.deliveryTime,
+            minOrder: store.minOrder,
+            deliveryFee: store.deliveryFee,
+            isOpen: store.isOpen,
+            rating: store.rating,
+            totalReviews: store.totalReviews,
+            timesOrdered: store.timesOrdered
+        })),
+        pagination: {
+            page: parseInt(page),
+            pages: Math.ceil(total / limit),
+            limit: parseInt(limit),
+            total
         }
     });
 });
@@ -303,13 +369,28 @@ exports.getStoresByCategory = asyncHandler(async (req, res, next) => {
 
     res.status(200).json({
         success: true,
-        data: {
-            stores,
-            pagination: {
-                current: parseInt(page),
-                pages: Math.ceil(total / limit),
-                total
-            }
+        data: stores.map(store => ({
+            id: store._id,
+            storeName: store.storeName,
+            address: store.address,
+            phone: store.phone,
+            category: store.category,
+            description: store.description,
+            deliveryTime: store.deliveryTime,
+            minOrder: store.minOrder,
+            openingTime: store.openingTime,
+            closingTime: store.closingTime,
+            deliveryFee: store.deliveryFee,
+            isOpen: store.isOpen,
+            rating: store.rating,
+            totalReviews: store.totalReviews,
+            menu: store.menu || []
+        })),
+        pagination: {
+            page: parseInt(page),
+            pages: Math.ceil(total / limit),
+            limit: parseInt(limit),
+            total
         }
     });
 });
@@ -335,7 +416,28 @@ exports.getStoreById = asyncHandler(async (req, res, next) => {
     
     res.status(200).json({
         success: true,
-        data: { store }
+        data: {
+            id: store._id,
+            storeName: store.storeName,
+            address: store.address,
+            phone: store.phone,
+            licenseNumber: store.licenseNumber,
+            licenseType: store.licenseType,
+            category: store.category,
+            description: store.description,
+            deliveryTime: store.deliveryTime,
+            minOrder: store.minOrder,
+            openingTime: store.openingTime,
+            closingTime: store.closingTime,
+            deliveryFee: store.deliveryFee,
+            isOpen: store.isOpen,
+            status: store.status,
+            isVerified: store.isVerified,
+            rating: store.rating,
+            totalReviews: store.totalReviews,
+            menu: store.menu || [],
+            ownerId: store.ownerId
+        }
     });
 });
 
@@ -352,7 +454,26 @@ exports.getMyStores = asyncHandler(async (req, res, next) => {
 
     res.status(200).json({
         success: true,
-        data: { stores }
+        data: stores.map(store => ({
+            id: store._id,
+            storeName: store.storeName,
+            address: store.address,
+            phone: store.phone,
+            category: store.category,
+            description: store.description,
+            deliveryTime: store.deliveryTime,
+            minOrder: store.minOrder,
+            openingTime: store.openingTime,
+            closingTime: store.closingTime,
+            deliveryFee: store.deliveryFee,
+            isOpen: store.isOpen,
+            status: store.status,
+            isVerified: store.isVerified,
+            rating: store.rating,
+            totalReviews: store.totalReviews,
+            menu: store.menu,
+            createdAt: store.createdAt
+        }))
     });
 });
 
@@ -372,6 +493,11 @@ exports.toggleStoreStatus = asyncHandler(async (req, res, next) => {
     res.status(200).json({
         success: true,
         message: `Store is now ${store.isOpen ? 'open' : 'closed'}`,
-        data: { isOpen: store.isOpen }
+        data: {
+            id: store._id,
+            storeName: store.storeName,
+            isOpen: store.isOpen,
+            status: store.status
+        }
     });
 });

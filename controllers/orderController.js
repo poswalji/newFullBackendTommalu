@@ -81,6 +81,7 @@
 //         order,
 //     }); 
 // });
+const mongoose = require('mongoose');
 const Order = require("../models/orderSchema");
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/appError');   
@@ -88,7 +89,7 @@ const User = require("../models/user");
 const Menu = require("../models/menuItems");
 const Store = require("../models/store");
 
-// ✅ CREATE ORDER - Fixed to use authenticated user
+// ✅ CREATE ORDER - Fixed to use authenticated user with fraud detection
 exports.createOrder = asyncHandler(async(req, res, next) => {
     // Use req.user._id from authentication instead of req.body.userId
     const { items, discount, promoCode, finalPrice, deliveryAddress } = req.body;
@@ -112,8 +113,85 @@ exports.createOrder = asyncHandler(async(req, res, next) => {
     const user = await User.findById(userId);
     if(!user || user.role !== 'customer') {
         return next(new AppError('Only customers can create orders', 400));
-    }       
+    }
     
+    // ✅ FRAUD DETECTION
+    const fraudFlags = [];
+    
+    // 1. Check for multiple recent cancelled orders
+    const recentCancelled = await Order.countDocuments({
+        userId,
+        status: 'Cancelled',
+        createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } // Last 24 hours
+    });
+    
+    if (recentCancelled > 3) {
+        fraudFlags.push({
+            type: 'high_cancellation_rate',
+            severity: 'high',
+            message: `User has ${recentCancelled} cancelled orders in last 24 hours`
+        });
+    }
+    
+    // 2. Check for abnormal order value (very high)
+    const avgOrderValue = await Order.aggregate([
+        { $match: { userId } },
+        { $group: { _id: null, avg: { $avg: '$finalPrice' } } }
+    ]);
+    const userAvgOrderValue = avgOrderValue[0]?.avg || 0;
+    
+    if (finalPrice > userAvgOrderValue * 5 && userAvgOrderValue > 0) {
+        fraudFlags.push({
+            type: 'abnormal_order_value',
+            severity: 'medium',
+            message: `Order value ${finalPrice} is significantly higher than user average ${userAvgOrderValue}`
+        });
+    }
+    
+    // 3. Check for rapid successive orders (potential bot/spam)
+    const recentOrders = await Order.countDocuments({
+        userId,
+        createdAt: { $gte: new Date(Date.now() - 60 * 60 * 1000) } // Last hour
+    });
+    
+    if (recentOrders > 10) {
+        fraudFlags.push({
+            type: 'rapid_ordering',
+            severity: 'high',
+            message: `User placed ${recentOrders} orders in the last hour`
+        });
+    }
+    
+    // 4. Check for multiple rejected orders
+    const recentRejected = await Order.countDocuments({
+        userId,
+        status: 'Rejected',
+        createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } // Last 7 days
+    });
+    
+    if (recentRejected > 5) {
+        fraudFlags.push({
+            type: 'high_rejection_rate',
+            severity: 'medium',
+            message: `User has ${recentRejected} rejected orders in last 7 days`
+        });
+    }
+    
+    // 5. Check if user account is suspended
+    if (user.status === 'suspended') {
+        return next(new AppError('Your account is suspended. Please contact support.', 403));
+    }
+    
+    // If high severity fraud detected, block order
+    const highSeverityFraud = fraudFlags.filter(f => f.severity === 'high');
+    if (highSeverityFraud.length > 0) {
+        // Log fraud attempt
+        // TODO: Create fraud detection log entry
+        
+        return next(new AppError('Order flagged for review due to suspicious activity. Please contact support.', 403));
+    }
+    
+    // Create order with fraud flags in metadata
     const newOrder = await Order.create({
         storeId, 
         userId, 
@@ -121,13 +199,27 @@ exports.createOrder = asyncHandler(async(req, res, next) => {
         discount, 
         promoCode, 
         finalPrice, 
-        deliveryAddress
+        deliveryAddress,
+        metadata: {
+            fraudFlags: fraudFlags.length > 0 ? fraudFlags : undefined,
+            fraudChecked: true
+        }
     });
     
     res.status(201).json({
-        status: 'success',
+        success: true,
         data: {
-            order: newOrder
+            id: newOrder._id,
+            userId: newOrder.userId,
+            storeId: newOrder.storeId,
+            items: newOrder.items,
+            discount: newOrder.discount,
+            promoCode: newOrder.promoCode,
+            finalPrice: newOrder.finalPrice,
+            deliveryAddress: newOrder.deliveryAddress,
+            status: newOrder.status,
+            createdAt: newOrder.createdAt,
+            updatedAt: newOrder.updatedAt
         }
     });
 });
@@ -151,11 +243,24 @@ exports.getCustomerOrders = asyncHandler(async(req, res, next) => {
     }           
     
     res.status(200).json({
-        status: 'success',
-        data: {    
-            totalOrders: user.orders.length,
-            orders: user.orders
-        }
+        success: true,
+        data: user.orders.map(order => ({
+            id: order._id || order.id,
+            userId: order.userId,
+            storeId: order.storeId,
+            items: order.items,
+            discount: order.discount,
+            promoCode: order.promoCode,
+            finalPrice: order.finalPrice,
+            deliveryAddress: order.deliveryAddress,
+            status: order.status,
+            createdAt: order.createdAt,
+            updatedAt: order.updatedAt,
+            rejectionReason: order.rejectionReason,
+            cancellationReason: order.cancellationReason,
+            storeName: order.storeId?.storeName
+        })),
+        total: user.orders.length
     }); 
 });
 
@@ -208,14 +313,29 @@ exports.updateOrderStatus = asyncHandler(async (req, res, next) => {
         orderId,
         updateData,
         { new: true, runValidators: true }
-    ).populate('userId', 'name email')
+    ).populate('userId', 'name email phone')
      .populate('storeId', 'storeName');
     
     res.status(200).json({
         success: true,
         message: `Order status updated to ${status}`,
         data: {
-            order: updatedOrder
+            id: updatedOrder._id,
+            userId: updatedOrder.userId?._id || updatedOrder.userId,
+            storeId: updatedOrder.storeId?._id || updatedOrder.storeId,
+            items: updatedOrder.items || [],
+            discount: updatedOrder.discount,
+            promoCode: updatedOrder.promoCode,
+            finalPrice: updatedOrder.finalPrice,
+            deliveryAddress: updatedOrder.deliveryAddress,
+            status: updatedOrder.status,
+            rejectionReason: updatedOrder.rejectionReason,
+            cancellationReason: updatedOrder.cancellationReason,
+            createdAt: updatedOrder.createdAt,
+            updatedAt: updatedOrder.updatedAt,
+            customerName: updatedOrder.userId?.name,
+            customerEmail: updatedOrder.userId?.email,
+            storeName: updatedOrder.storeId?.storeName
         }
     }); 
 });
@@ -235,10 +355,25 @@ exports.getStoreOrders = asyncHandler(async (req, res, next) => {
     
     res.status(200).json({
         success: true,
-        data: {
-            totalOrders: orders.length,
-            orders
-        }
+        data: orders.map(order => ({
+            id: order._id,
+            userId: order.userId,
+            storeId: order.storeId,
+            items: order.items,
+            discount: order.discount,
+            promoCode: order.promoCode,
+            finalPrice: order.finalPrice,
+            deliveryAddress: order.deliveryAddress,
+            status: order.status,
+            rejectionReason: order.rejectionReason,
+            cancellationReason: order.cancellationReason,
+            createdAt: order.createdAt,
+            updatedAt: order.updatedAt,
+            customerName: order.userId?.name,
+            customerEmail: order.userId?.email,
+            storeName: order.storeId?.storeName
+        })),
+        total: orders.length
     });
 });
 
@@ -300,17 +435,29 @@ exports.createOrderFromCart = asyncHandler(async (req, res, next) => {
     await newOrder.populate('items.menuItemId', 'name');
 
     res.status(201).json({
-        status: 'success',
+        success: true,
         message: 'Order created successfully from cart',
         data: {
-            order: newOrder
+            id: newOrder._id,
+            userId: newOrder.userId,
+            storeId: newOrder.storeId,
+            items: newOrder.items,
+            discount: newOrder.discount,
+            promoCode: newOrder.promoCode,
+            finalPrice: newOrder.finalPrice,
+            deliveryAddress: newOrder.deliveryAddress,
+            status: newOrder.status,
+            paymentMethod: newOrder.paymentMethod,
+            createdAt: newOrder.createdAt,
+            updatedAt: newOrder.updatedAt,
+            storeName: newOrder.storeId?.storeName
         }
     });
 });
 
 // ✅ CANCEL ORDER (Customer)
 exports.cancelOrder = asyncHandler(async (req, res, next) => {
-    const orderId = req.params.orderId;
+    const orderId = req.params.id || req.params.orderId; // Support both :id and :orderId
     const { cancellationReason } = req.body;
 
     const order = await Order.findOne({
@@ -336,7 +483,21 @@ exports.cancelOrder = asyncHandler(async (req, res, next) => {
     res.status(200).json({
         success: true,
         message: 'Order cancelled successfully',
-        data: { order }
+        data: {
+            id: order._id,
+            userId: order.userId,
+            storeId: order.storeId,
+            items: order.items,
+            discount: order.discount,
+            promoCode: order.promoCode,
+            finalPrice: order.finalPrice,
+            deliveryAddress: order.deliveryAddress,
+            status: order.status,
+            cancellationReason: order.cancellationReason,
+            cancelledTime: order.cancelledTime,
+            createdAt: order.createdAt,
+            updatedAt: order.updatedAt
+        }
     });
 });
 
@@ -349,11 +510,37 @@ exports.getAllOrders = asyncHandler(async (req, res, next) => {
       .populate('userId', 'name email')
       .populate('storeId', 'storeName')
       .sort({ createdAt: -1 });
-    res.status(200).json({ success: true, total: orders.length, orders });
+    res.status(200).json({ 
+        success: true, 
+        data: orders.map(order => ({
+            id: order._id,
+            userId: order.userId,
+            storeId: order.storeId,
+            items: order.items,
+            discount: order.discount,
+            promoCode: order.promoCode,
+            finalPrice: order.finalPrice,
+            deliveryAddress: order.deliveryAddress,
+            status: order.status,
+            rejectionReason: order.rejectionReason,
+            cancellationReason: order.cancellationReason,
+            createdAt: order.createdAt,
+            updatedAt: order.updatedAt,
+            customerName: order.userId?.name,
+            customerEmail: order.userId?.email,
+            storeName: order.storeId?.storeName
+        })),
+        total: orders.length 
+    });
 });
 
 // ✅ Get single order (owner or admin/delivery)
 exports.getOrderById = asyncHandler(async (req, res, next) => {
+    // Validate that the ID is a valid ObjectId format
+    if (!req.params.id || !mongoose.Types.ObjectId.isValid(req.params.id)) {
+        return next(new AppError('Invalid order ID format', 400));
+    }
+    
     const order = await Order.findById(req.params.id)
       .populate('userId', 'name email')
       .populate('storeId', 'storeName')
@@ -363,11 +550,71 @@ exports.getOrderById = asyncHandler(async (req, res, next) => {
     const isOwner = order.userId && order.userId._id.toString() === req.user._id.toString();
     const isAdmin = req.user.role === 'admin';
     const isDelivery = req.user.role === 'delivery';
-    const isStoreOwner = req.user.role === 'storeOwner';
+    
+    // Check if user is store owner of the order's store
+    let isStoreOwner = false;
+    if (req.user.role === 'storeOwner') {
+        const store = await Store.findOne({ 
+            _id: order.storeId, 
+            ownerId: req.user._id 
+        });
+        isStoreOwner = !!store;
+    }
+    
     if (!isOwner && !isAdmin && !isDelivery && !isStoreOwner) {
         return next(new AppError('Not authorized to view this order', 403));
     }
-    res.status(200).json({ success: true, order });
+    res.status(200).json({ 
+        success: true, 
+        data: {
+            id: order._id,
+            userId: order.userId,
+            storeId: order.storeId,
+            items: order.items,
+            discount: order.discount,
+            promoCode: order.promoCode,
+            finalPrice: order.finalPrice,
+            deliveryAddress: order.deliveryAddress,
+            status: order.status,
+            rejectionReason: order.rejectionReason,
+            cancellationReason: order.cancellationReason,
+            createdAt: order.createdAt,
+            updatedAt: order.updatedAt,
+            customerName: order.userId?.name,
+            customerEmail: order.userId?.email,
+            storeName: order.storeId?.storeName
+        }
+    });
+});
+
+// ✅ Public order tracking (limited info for order confirmation)
+exports.getOrderPublic = asyncHandler(async (req, res, next) => {
+    const orderId = req.params.orderId;
+    
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+        return next(new AppError('Invalid order ID format', 400));
+    }
+    
+    const order = await Order.findById(orderId)
+      .populate('storeId', 'storeName')
+      .select('status createdAt updatedAt finalPrice storeId items');
+    
+    if (!order) {
+        return next(new AppError('Order not found', 404));
+    }
+    
+    res.status(200).json({ 
+        success: true, 
+        data: {
+            id: order._id,
+            status: order.status,
+            finalPrice: order.finalPrice,
+            storeName: order.storeId?.storeName,
+            itemsCount: order.items?.length || 0,
+            createdAt: order.createdAt,
+            updatedAt: order.updatedAt
+        }
+    });
 });
 
 // ✅ Admin/Delivery status update (no store ownership requirement)
@@ -386,5 +633,26 @@ exports.updateOrderStatusAdmin = asyncHandler(async (req, res, next) => {
         { new: true, runValidators: true }
     ).populate('userId', 'name email').populate('storeId', 'storeName');
     if (!updated) return next(new AppError('Order not found', 404));
-    res.status(200).json({ success: true, message: `Order status updated to ${status}`, order: updated });
+    res.status(200).json({ 
+        success: true, 
+        message: `Order status updated to ${status}`, 
+        data: {
+            id: updated._id,
+            userId: updated.userId,
+            storeId: updated.storeId,
+            items: updated.items,
+            discount: updated.discount,
+            promoCode: updated.promoCode,
+            finalPrice: updated.finalPrice,
+            deliveryAddress: updated.deliveryAddress,
+            status: updated.status,
+            rejectionReason: updated.rejectionReason,
+            cancellationReason: updated.cancellationReason,
+            createdAt: updated.createdAt,
+            updatedAt: updated.updatedAt,
+            customerName: updated.userId?.name,
+            customerEmail: updated.userId?.email,
+            storeName: updated.storeId?.storeName
+        }
+    });
 });

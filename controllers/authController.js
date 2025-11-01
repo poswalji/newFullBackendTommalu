@@ -8,7 +8,7 @@ const { OAuth2Client } = require('google-auth-library');
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 exports.registerUser = asyncHandler(async (req, res, next) => {
-    const { name, email, password, role, phone, address } = req.body;
+    const { name, email, password, role, phone, addresses } = req.body;
 
     // ✅ Add basic validation
     if (!name || !email || !password) {
@@ -21,10 +21,12 @@ exports.registerUser = asyncHandler(async (req, res, next) => {
         return next(new AppError('User already exists with this email', 400));
     }
 
-    // ✅ Create user with additional fields
+    // ✅ Create user with additional fields (support addresses array)
     const userData = { name, email, password, role: role || 'customer' };
     if (phone) userData.phone = phone;
-    if (address) userData.address = address;
+    if (addresses && Array.isArray(addresses)) {
+        userData.addresses = addresses;
+    }
 
     const user = await User.create(userData);
     
@@ -40,7 +42,7 @@ exports.registerUser = asyncHandler(async (req, res, next) => {
             email: user.email,
             role: user.role,
             phone: user.phone,
-            address: user.address
+            addresses: user.addresses || []
         }
     });
 });
@@ -72,7 +74,7 @@ exports.loginUser = asyncHandler(async (req, res, next) => {
             email: user.email,
             role: user.role,
             phone: user.phone,
-            address: user.address
+            addresses: user.addresses || []
         }
     });
 });
@@ -137,10 +139,7 @@ exports.googleAuth = asyncHandler(async (req, res, next) => {
                 password: uniquePassword, // ✅ Unique password for each user
                 googleId: googleId, // ✅ Unique Google ID
                 role: 'customer',
-                isEmailVerified: true,
-                avatar: picture,
-                phone: "", // Default values
-                address: ""
+                phone: "" // Default values
             });
             console.log('✅ New Google user created:', user.email);
         }
@@ -161,7 +160,7 @@ exports.googleAuth = asyncHandler(async (req, res, next) => {
                 email: user.email,
                 role: user.role,
                 phone: user.phone || '',
-                address: user.address || '',
+                addresses: user.addresses || [],
                 avatar: user.avatar
             }
         });
@@ -185,14 +184,16 @@ exports.getMe = asyncHandler(async (req, res, next) => {
             email: user.email,
             role: user.role,
             phone: user.phone,
-            address: user.address,
+            addresses: user.addresses || [],
+            status: user.status,
+            adminRole: user.adminRole
         }
     });
 });
 
 // ✅ Update current user profile
 exports.updateProfile = asyncHandler(async (req, res, next) => {
-    const allowed = ['name', 'phone', 'address'];
+    const allowed = ['name', 'phone', 'addresses'];
     const updates = {};
     allowed.forEach((k) => {
         if (req.body[k] !== undefined) updates[k] = req.body[k];
@@ -202,13 +203,13 @@ exports.updateProfile = asyncHandler(async (req, res, next) => {
     if (!user) return next(new AppError('User not found', 404));
     res.status(200).json({
         success: true,
-        user: {
+        data: {
             id: user._id,
             name: user.name,
             email: user.email,
             role: user.role,
             phone: user.phone,
-            address: user.address,
+            addresses: user.addresses || []
         }
     });
 });

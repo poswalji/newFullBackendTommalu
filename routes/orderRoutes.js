@@ -36,6 +36,29 @@ router.post('/', restrictTo('customer'), orderController.createOrder);
  *         description: List of orders
  */
 router.get('/', restrictTo('customer'), orderController.getCustomerOrders);
+
+// ✅ IMPORTANT: Place specific routes BEFORE parameterized routes
+// This prevents "/admin" from matching "/:id"
+/**
+ * @openapi
+ * /api/orders/admin:
+ *   get:
+ *     tags: [Orders]
+ *     summary: Get all orders (admin)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         required: false
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Orders
+ */
+router.get('/admin', restrictTo('admin'), orderController.getAllOrders);
+
 /**
  * @openapi
  * /api/orders/{id}:
@@ -84,38 +107,34 @@ router.get('/:id', orderController.getOrderById); // owner/admin/delivery/storeO
  */
 router.put('/:id/status', restrictTo('admin', 'delivery'), orderController.updateOrderStatusAdmin);
 
-// Admin or store owner can access all orders
+// ✅ Cancel order (customer)
 /**
  * @openapi
- * /api/orders/admin:
- *   get:
+ * /api/orders/{id}/cancel:
+ *   post:
  *     tags: [Orders]
- *     summary: Get all orders (admin or storeOwner)
- *     security:
- *       - bearerAuth: []
- *       - cookieAuth: []
- *     responses:
- *       200:
- *         description: List of all orders
- */
-/**
- * @openapi
- * /api/orders/admin:
- *   get:
- *     tags: [Orders]
- *     summary: Get all orders (admin)
+ *     summary: Cancel order (customer)
  *     security:
  *       - bearerAuth: []
  *     parameters:
- *       - in: query
- *         name: status
- *         required: false
+ *       - in: path
+ *         name: id
+ *         required: true
  *         schema:
  *           type: string
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               cancellationReason:
+ *                 type: string
  *     responses:
  *       200:
- *         description: Orders
+ *         description: Order cancelled
  */
-router.get('/admin', restrictTo('admin'), orderController.getAllOrders);
+router.post('/:id/cancel', restrictTo('customer'), orderController.cancelOrder);
 
 module.exports = router;

@@ -52,16 +52,28 @@ exports.getStoreMenu = asyncHandler(async (req, res, next) => {
 
     res.status(200).json({
         success: true,
-        data: {
-            store: {
-                _id: store._id,
-                storeName: store.storeName,
-                isOpen: store.isOpen
-            },
-            menu: menuItems,
-            menuByCategory,
-            totalItems: menuItems.length
-        }
+        data: menuItems.map(item => ({
+            id: item._id,
+            name: item.name,
+            price: item.price,
+            category: item.category,
+            description: item.description,
+            available: item.available,
+            stockQuantity: item.stockQuantity,
+            image: item.images?.[0] || item.image,
+            foodType: item.foodType,
+            preparationTime: item.preparationTime,
+            discount: item.discount,
+            tags: item.tags,
+            customizations: item.customizations
+        })),
+        store: {
+            id: store._id,
+            storeName: store.storeName,
+            isOpen: store.isOpen
+        },
+        menuByCategory,
+        totalItems: menuItems.length
     });
 });
 
@@ -130,7 +142,20 @@ exports.addMenuItem = asyncHandler(async (req, res, next) => {
         success: true,
         message: 'Menu item added successfully',
         data: {
-            menuItem: newMenuItem
+            id: newMenuItem._id,
+            name: newMenuItem.name,
+            price: newMenuItem.price,
+            category: newMenuItem.category,
+            description: newMenuItem.description,
+            available: newMenuItem.available,
+            stockQuantity: newMenuItem.stockQuantity,
+            image: newMenuItem.images?.[0] || newMenuItem.image,
+            foodType: newMenuItem.foodType,
+            preparationTime: newMenuItem.preparationTime,
+            discount: newMenuItem.discount,
+            tags: newMenuItem.tags,
+            customizations: newMenuItem.customizations,
+            storeId: newMenuItem.storeId
         }
     });
 });
@@ -203,7 +228,20 @@ exports.updateMenuItem = asyncHandler(async (req, res, next) => {
         success: true,
         message: 'Menu item updated successfully',
         data: {
-            menuItem: updatedMenuItem
+            id: updatedMenuItem._id,
+            name: updatedMenuItem.name,
+            price: updatedMenuItem.price,
+            category: updatedMenuItem.category,
+            description: updatedMenuItem.description,
+            available: updatedMenuItem.available,
+            stockQuantity: updatedMenuItem.stockQuantity,
+            image: updatedMenuItem.images?.[0] || updatedMenuItem.image,
+            foodType: updatedMenuItem.foodType,
+            preparationTime: updatedMenuItem.preparationTime,
+            discount: updatedMenuItem.discount,
+            tags: updatedMenuItem.tags,
+            customizations: updatedMenuItem.customizations,
+            storeId: updatedMenuItem.storeId
         }
     }); 
 });
@@ -262,7 +300,20 @@ exports.toggleAvailability = asyncHandler(async (req, res, next) => {
         success: true,
         message: `Menu item ${menuItem.available ? 'enabled' : 'disabled'}`,
         data: {
-            menuItem
+            id: menuItem._id,
+            name: menuItem.name,
+            price: menuItem.price,
+            category: menuItem.category,
+            description: menuItem.description,
+            available: menuItem.available,
+            stockQuantity: menuItem.stockQuantity,
+            image: menuItem.images?.[0] || menuItem.image,
+            foodType: menuItem.foodType,
+            preparationTime: menuItem.preparationTime,
+            discount: menuItem.discount,
+            tags: menuItem.tags,
+            customizations: menuItem.customizations,
+            storeId: menuItem.storeId
         }
     });
 });

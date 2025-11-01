@@ -18,16 +18,14 @@ exports.getCustomer = asyncHandler(async (req, res, next) => {
     }
         
     res.status(200).json({
-        status: 'success',
-        data: {      
-            user: {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                phone: user.phone,
-                address: user.address,
-                role: user.role
-            }
+        success: true,
+        data: {
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            phone: user.phone,
+            addresses: user.addresses || [],
+            role: user.role
         }
     }); 
 });
@@ -38,7 +36,7 @@ exports.updateCustomer = asyncHandler(async (req, res, next) => {
     const updates = req.body;
     
     // Remove sensitive fields that shouldn't be updated
-    const allowedUpdates = ['name', 'phone', 'address'];
+    const allowedUpdates = ['name', 'phone', 'addresses'];
     const filteredUpdates = {};
     
     allowedUpdates.forEach(field => {
@@ -62,16 +60,14 @@ exports.updateCustomer = asyncHandler(async (req, res, next) => {
     }
         
     res.status(200).json({
-        status: 'success',
-        data: {  
-            user: {
-                id: updatedUser._id,
-                name: updatedUser.name,
-                email: updatedUser.email,
-                phone: updatedUser.phone,
-                address: updatedUser.address,
-                role: updatedUser.role
-            }
+        success: true,
+        data: {
+            id: updatedUser._id,
+            name: updatedUser.name,
+            email: updatedUser.email,
+            phone: updatedUser.phone,
+            addresses: updatedUser.addresses || [],
+            role: updatedUser.role
         }
     }); 
 });
@@ -90,7 +86,7 @@ exports.deleteCustomer = asyncHandler(async (req, res, next) => {
     }
          
     res.status(204).json({
-        status: 'success',
+        success: true,
         data: null
     }); 
 });
@@ -103,15 +99,13 @@ exports.getCustomerById = asyncHandler(async (req, res, next) => {
         return next(new AppError('Customer not found', 404));
     }       
     res.status(200).json({
-        status: 'success',
-        data: {      
-            user: {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                phone: user.phone,
-                address: user.address
-            }
+        success: true,
+        data: {
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            phone: user.phone,
+            addresses: user.addresses || []
         }
     }); 
 });
@@ -124,15 +118,13 @@ exports.updateCustomerById = asyncHandler(async (req, res, next) => {
         return next(new AppError('Customer not found', 404));
     }         
     res.status(200).json({
-        status: 'success',
-        data: {  
-            user: {
-                id: updatedUser._id,
-                name: updatedUser.name,
-                email: updatedUser.email,
-                phone: updatedUser.phone,
-                address: updatedUser.address
-            }
+        success: true,
+        data: {
+            id: updatedUser._id,
+            name: updatedUser.name,
+            email: updatedUser.email,
+            phone: updatedUser.phone,
+            addresses: updatedUser.addresses || []
         }
     }); 
 });

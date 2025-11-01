@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const menuItemController = require('../controllers/menuController');
 const storeOwnerController = require('../controllers/storeOwnerController');
+const orderController = require('../controllers/orderController');
 
 // ✅ PUBLIC ROUTES - No authentication needed
 
@@ -55,5 +56,24 @@ router.get('/stores/:storeId/menu', menuItemController.getStoreMenu);
  *         description: Stores matching search query
  */
 router.get('/stores/search', storeOwnerController.searchStores);
+
+// ✅ Public order tracking (for order confirmation page)
+/**
+ * @openapi
+ * /api/public/orders/{orderId}:
+ *   get:
+ *     tags: [Public]
+ *     summary: Get order tracking info (public)
+ *     parameters:
+ *       - in: path
+ *         name: orderId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Order tracking info
+ */
+router.get('/orders/:orderId', orderController.getOrderPublic);
 
 module.exports = router;

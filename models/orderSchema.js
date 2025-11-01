@@ -1,6 +1,6 @@
-// const mongoose = require("mongoose");
- const User = require("./user"); // import User model
- const Store = require("./store"); // import Store model
+const mongoose = require("mongoose");
+const User = require("./user"); // import User model
+const Store = require("./store"); // import Store model
 
 // const OrderSchema = new mongoose.Schema({
 //   userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
@@ -48,7 +48,6 @@
 // OrderSchema.set("toJSON", { virtuals: true });  
 
 // module.exports = mongoose.model("Order", OrderSchema);
-const mongoose = require("mongoose");
 
 const OrderSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
@@ -92,6 +91,37 @@ const OrderSchema = new mongoose.Schema({
   cancellationReason: {
     type: String,
     maxlength: [500, "Cancellation reason too long"]
+  },
+  
+  // ✅ Payment tracking
+  paymentMethod: {
+    type: String,
+    enum: ['cash_on_delivery', 'online', 'wallet'],
+    default: 'cash_on_delivery'
+  },
+  paymentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Payment',
+    sparse: true
+  },
+  
+  // ✅ Delivery tracking
+  deliveryPartner: {
+    type: String,
+    enum: ['self', 'platform', 'external', null],
+    default: null
+  },
+  estimatedDeliveryTime: {
+    type: Date
+  },
+  trackingId: {
+    type: String,
+    sparse: true
+  },
+  
+  // ✅ Metadata for fraud detection, analytics, etc.
+  metadata: {
+    type: mongoose.Schema.Types.Mixed
   }
 },
 { timestamps: true });
