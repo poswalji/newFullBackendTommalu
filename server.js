@@ -1,42 +1,42 @@
 require('dotenv').config();
-
-const app = require("./app");
+const express = require("express");
 const mongoose = require("mongoose");
+const app = require("./app");
 
 const mongoUri = process.env.MONGO_URI;
-if (!mongoUri) {
-    throw new Error("MONGO_URI is not set. Please configure it in your .env file.");
-}
-
-// Surface connection issues immediately instead of buffering operations for 10s
-mongoose.set('bufferCommands', false);
-mongoose.set('strictQuery', true);
-
 const PORT = process.env.PORT || 3000;
 
+mongoose.set("strictQuery", true);
+mongoose.set("bufferCommands", false);
+
 async function start() {
-    try {
-        await mongoose.connect(mongoUri, {
-            serverSelectionTimeoutMS: 15000,
-            socketTimeoutMS: 45000,
-            maxPoolSize: 10,
-            retryWrites: true,
-            w: 'majority',
-            autoIndex: process.env.NODE_ENV !== 'production'
-        });
-        console.log("Database connected successfully 👍");
+  try {
+    await mongoose.connect(mongoUri, {
+      serverSelectionTimeoutMS: 15000,
+      socketTimeoutMS: 45000,
+      maxPoolSize: 10,
+    });
 
-        app.listen(PORT, () => {
-            console.log(`Server is running on port ${PORT}`);
-        });
-    } catch (err) {
-        console.error("Failed to connect to MongoDB:", err.message);
-        process.exit(1);
-    }
+    console.log("✅ Database connected successfully 👍");
+
+    // Import routes *after* connection
+    app.use("/api/auth", require("./routes/authRoutes"));
+    app.use("/api/customer", require("./routes/customerRoutes"));
+    app.use("/api/storeOwner", require("./routes/storeOwnerRoutes"));
+    app.use("/api/admin", require("./routes/adminRoutes"));
+    app.use("/api/orders", require("./routes/orderRoutes"));
+    app.use("/api/cart", require("./routes/cartRoutes"));
+    app.use("/api/public", require("./routes/publicRoutes"));
+    app.use("/api/categories", require("./routes/categoryRoutes"));
+    app.use("/api/products", require("./routes/productRoutes"));
+
+    app.listen(PORT, () => {
+      console.log(`🚀 Server running on port ${PORT}`);
+    });
+  } catch (err) {
+    console.error("❌ Failed to connect to MongoDB:", err.message);
+    process.exit(1);
+  }
 }
-
-mongoose.connection.on('error', (err) => {
-    console.error('Mongoose connection error:', err);
-});
 
 start();

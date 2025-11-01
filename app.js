@@ -1,27 +1,23 @@
-
-const express=require('express');
+// app.js
+const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
-const customerRoutes=require('./routes/customerRoutes');
-const app=express();
-const storeOwnerRoutes=require('./routes/storeOwnerRoutes');
-const authRoutes=require('./routes/authRoutes');
 const swaggerUi = require('swagger-ui-express');
 const { swaggerSpec } = require('./docs/swagger');
 
+const app = express();
+
 const allowedOrigins = [
-  "https://tommalu.netlify.app", // Production frontend
-  "http://localhost:3000",       // React dev server
-  "http://localhost:5173",       // Vite dev server
-  "http://127.0.0.1:3000",      // Localhost variants
+  "https://tommalu.netlify.app",
+  "http://localhost:3000",
+  "http://localhost:5173",
+  "http://127.0.0.1:3000",
   "http://127.0.0.1:5173",
 ];
 
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or Postman)
     if (!origin) return callback(null, true);
-    
     if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
@@ -30,27 +26,20 @@ app.use(cors({
   },
   credentials: true
 }));
-app.use(cookieParser());
 
+app.use(cookieParser());
 app.use(express.json());
 
-app.use('/api/customer',customerRoutes);
-app.use('/api/storeOwner',storeOwnerRoutes);
-app.use('/api/auth',authRoutes);
-app.use('/api/admin', require('./routes/adminRoutes'));
-app.use('/api/orders', require('./routes/orderRoutes'));
-app.use('/api/cart', require('./routes/cartRoutes'));
-app.use('/api/public', require('./routes/publicRoutes'));
-app.use('/api/categories', require('./routes/categoryRoutes'));
-app.use('/api/products', require('./routes/productRoutes'));
+app.get("/", (req, res) => {
+  res.json("Welcome to Tommalu API 🔥🔥🔥");
+});
 
-// Swagger UI JSON (for direct spec access and stable URL resolution on serverless hosts)
+// Swagger setup
 app.get('/api-docs.json', (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   res.send(swaggerSpec);
 });
 
-// Swagger UI (serve static assets in a way that works well on serverless)
 const swaggerUiOptions = {
   explorer: true,
   swaggerOptions: {
@@ -64,10 +53,11 @@ app.use(
   swaggerUi.setup(swaggerSpec, swaggerUiOptions)
 );
 
+// Error middleware
 app.use((err, req, res, next) => {
   res.status(res.statusCode || 500).json({
     message: err.message,
   });
 });
 
-module.exports=app;
+module.exports = app;
