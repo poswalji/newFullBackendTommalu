@@ -72,25 +72,58 @@ app.use(
   swaggerUi.setup(swaggerSpec, swaggerUiOptions)
 );
 
-// Error middleware
+// 404 handler for undefined routes - must be before error middleware
+app.use('*', (req, res, next) => {
+  const err = new Error(`Route ${req.originalUrl} not found`);
+  err.statusCode = 404;
+  next(err);
+});
+
+// Error middleware - must be last middleware
 app.use((err, req, res, next) => {
-  const statusCode = res.statusCode || 500;
+  // Determine status code
+  const statusCode = err.statusCode || res.statusCode || 500;
   
-  // Log error
-  logger.error('Error occurred', {
+  // Log error with comprehensive details
+  logger.error('Error occurred in request', {
     message: err.message,
+    name: err.name || 'Error',
     stack: err.stack,
     statusCode,
     path: req.path,
     method: req.method,
-    ip: req.ip,
+    url: req.originalUrl || req.url,
+    ip: req.ip || req.connection?.remoteAddress,
+    userAgent: req.get('user-agent'),
+    userId: req.user?._id || 'anonymous',
+    timestamp: new Date().toISOString(),
+    isOperational: err.isOperational || false,
+    ...(err.errors && { validationErrors: err.errors }),
   });
   
-  res.status(statusCode).json({
+  // Prepare error response
+  const errorResponse = {
     success: false,
-    message: err.message,
-    ...(process.env.NODE_ENV !== 'production' && { stack: err.stack }),
-  });
+    error: {
+      message: err.message || 'Internal server error',
+      ...(err.name && { type: err.name }),
+    },
+  };
+  
+  // Add stack trace in development
+  if (process.env.NODE_ENV !== 'production') {
+    errorResponse.error.stack = err.stack;
+    errorResponse.error.path = req.path;
+    errorResponse.error.method = req.method;
+  }
+  
+  // Add validation errors if present
+  if (err.errors && typeof err.errors === 'object') {
+    errorResponse.error.errors = err.errors;
+  }
+  
+  // Send error response
+  res.status(statusCode).json(errorResponse);
 });
 
 module.exports = app;

@@ -10,6 +10,27 @@ const PORT = process.env.PORT || 5000; // Changed to 5000 to avoid conflict with
 mongoose.set("strictQuery", true);
 mongoose.set("bufferCommands", false);
 
+// Global error handlers - must be defined before routes
+process.on('unhandledRejection', (reason, promise) => {
+  error('Unhandled Promise Rejection', {
+    reason: reason?.message || reason,
+    stack: reason?.stack,
+    promise: promise.toString(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+process.on('uncaughtException', (err) => {
+  error('Uncaught Exception', {
+    message: err.message,
+    stack: err.stack,
+    name: err.name,
+    timestamp: new Date().toISOString(),
+  });
+  // Exit process for uncaught exceptions as the application is in an undefined state
+  process.exit(1);
+});
+
 async function start() {
   try {
     await mongoose.connect(mongoUri, {
