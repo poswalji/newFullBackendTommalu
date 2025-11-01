@@ -72,6 +72,30 @@ app.use(
   swaggerUi.setup(swaggerSpec, swaggerUiOptions)
 );
 
+// Register all routes - must be before error middleware
+// Routes are registered here to ensure they're available for Vercel serverless functions
+app.use("/api/auth", require("./routes/authRoutes"));
+app.use("/api/customer", require("./routes/customerRoutes"));
+app.use("/api/store-owner", require("./routes/storeOwnerRoutes"));
+app.use("/api/admin", require("./routes/adminRoutes"));
+app.use("/api/orders", require("./routes/orderRoutes"));
+app.use("/api/cart", require("./routes/cartRoutes"));
+app.use("/api/public", require("./routes/publicRoutes"));
+app.use("/api/categories", require("./routes/categoryRoutes"));
+app.use("/api/products", require("./routes/productRoutes"));
+app.use("/api/payments", require("./routes/paymentRoutes"));
+app.use("/api/reviews", require("./routes/reviewRoutes"));
+app.use("/api/promotions", require("./routes/promotionRoutes"));
+app.use("/api/disputes", require("./routes/disputeRoutes"));
+app.use("/api/payouts", require("./routes/payoutRoutes"));
+
+// 404 handler for undefined routes - must be before error middleware
+app.use((req, res, next) => {
+  const err = new Error(`Route ${req.originalUrl} not found`);
+  err.statusCode = 404;
+  next(err);
+});
+
 // Error middleware - must be last middleware
 app.use((err, req, res, next) => {
   // Determine status code

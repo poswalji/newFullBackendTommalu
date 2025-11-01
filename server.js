@@ -44,30 +44,8 @@ async function start() {
       host: mongoose.connection.host,
     });
 
-    // Import routes *after* connection
-    app.use("/api/auth", require("./routes/authRoutes"));
-    app.use("/api/customer", require("./routes/customerRoutes"));
-    app.use("/api/store-owner", require("./routes/storeOwnerRoutes")); // Fixed: changed from storeOwner to store-owner for consistency
-    app.use("/api/admin", require("./routes/adminRoutes"));
-    app.use("/api/orders", require("./routes/orderRoutes"));
-    app.use("/api/cart", require("./routes/cartRoutes"));
-    app.use("/api/public", require("./routes/publicRoutes"));
-    app.use("/api/categories", require("./routes/categoryRoutes"));
-    app.use("/api/products", require("./routes/productRoutes"));
-    
-    // New advanced routes
-    app.use("/api/payments", require("./routes/paymentRoutes"));
-    app.use("/api/reviews", require("./routes/reviewRoutes"));
-    app.use("/api/promotions", require("./routes/promotionRoutes"));
-    app.use("/api/disputes", require("./routes/disputeRoutes"));
-    app.use("/api/payouts", require("./routes/payoutRoutes"));
-
-    // 404 handler for undefined routes - must be after all routes but before error middleware
-    app.use((req, res, next) => {
-      const err = new Error(`Route ${req.originalUrl} not found`);
-      err.statusCode = 404;
-      next(err);
-    });
+    // Note: Routes are now registered in app.js to ensure they're available
+    // for Vercel serverless functions and other deployment environments
 
     app.listen(PORT, () => {
       info(`🚀 Server running on port ${PORT}`, {
