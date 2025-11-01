@@ -15,7 +15,7 @@ const app = express();
 const mongoUri = process.env.MONGO_URI;
 mongoose.set("strictQuery", true);
 mongoose.set("bufferCommands", false);
-mongoose.set("bufferMaxEntries", 0); // Disable Mongoose buffering
+mongoose.set("bufferMaxEntries", true); // Disable Mongoose buffering
 
 // Global error handlers - must be defined before routes
 process.on('unhandledRejection', (reason, promise) => {
