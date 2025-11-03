@@ -76,4 +76,10 @@ router.get('/stores/search', storeOwnerController.searchStores);
  */
 router.get('/orders/:orderId', orderController.getOrderPublic);
 
+// ✅ Get all products across stores (for browsing)
+router.get('/products', menuItemController.getAllProducts);
+
+// ✅ Get all categories
+router.get('/categories', menuItemController.getAllCategories);
+
 module.exports = router;

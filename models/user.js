@@ -72,7 +72,21 @@ const userSchema = new mongoose.Schema({
       country: { type: String, default: "India" },
       isDefault: { type: Boolean, default: false }
     }
-  ]
+  ],
+
+  // ✅ Email verification fields
+  emailVerified: {
+    type: Boolean,
+    default: false
+  },
+  verificationCode: {
+    type: String,
+    select: false
+  },
+  verificationCodeExpires: {
+    type: Date,
+    select: false
+  }
    
 
 },

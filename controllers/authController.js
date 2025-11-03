@@ -1,8 +1,9 @@
 const User = require("../models/user");
 const asyncHandler = require('../utils/asyncHandler');
-
 const AppError = require('../utils/appError');
 const { OAuth2Client } = require('google-auth-library');
+const jwt = require('jsonwebtoken');
+const { sendVerificationEmail } = require('../utils/emailService');
 
 // Google OAuth client
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -21,8 +22,20 @@ exports.registerUser = asyncHandler(async (req, res, next) => {
         return next(new AppError('User already exists with this email', 400));
     }
 
+    // ✅ Generate 6-digit verification code
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const verificationCodeExpires = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+
     // ✅ Create user with additional fields (support addresses array)
-    const userData = { name, email, password, role: role || 'customer' };
+    const userData = { 
+        name, 
+        email, 
+        password, 
+        role: role || 'customer',
+        emailVerified: false,
+        verificationCode,
+        verificationCodeExpires
+    };
     if (phone) userData.phone = phone;
     if (addresses && Array.isArray(addresses)) {
         userData.addresses = addresses;
@@ -30,19 +43,32 @@ exports.registerUser = asyncHandler(async (req, res, next) => {
 
     const user = await User.create(userData);
     
-    // ✅ Generate token after registration
-    const token = user.generateAuthToken();
+    // ✅ Send verification email
+    try {
+        await sendVerificationEmail(user.email, verificationCode);
+    } catch (emailError) {
+        // If email fails, delete the user and return error
+        await User.findByIdAndDelete(user._id);
+        return next(new AppError('Failed to send verification email. Please try again.', 500));
+    }
+
+    // ✅ Generate verification token (30 minutes expiry)
+    const verificationToken = jwt.sign(
+        { id: user._id, email: user.email, type: 'email_verification' },
+        process.env.JWT_SECRET,
+        { expiresIn: '30m' }
+    );
 
     res.status(201).json({
         success: true,
-        token,
+        message: 'Registration successful. Please check your email for verification code.',
+        verificationToken,
         user: {
             id: user._id,
             name: user.name,
             email: user.email,
             role: user.role,
-            phone: user.phone,
-            addresses: user.addresses || []
+            emailVerified: user.emailVerified
         }
     });
 });
@@ -60,6 +86,36 @@ exports.loginUser = asyncHandler(async (req, res, next) => {
     
     if (!user || !(await user.correctPassword(password))) {
         return next(new AppError('Incorrect email or password', 401));
+    }
+
+    // ✅ Check if email is verified
+    if (!user.emailVerified) {
+        // Generate new verification code if expired
+        const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+        const verificationCodeExpires = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+        
+        user.verificationCode = verificationCode;
+        user.verificationCodeExpires = verificationCodeExpires;
+        await user.save({ validateBeforeSave: false });
+
+        // Send verification email
+        try {
+            await sendVerificationEmail(user.email, verificationCode);
+        } catch (emailError) {
+            console.error('Error sending verification email:', emailError);
+        }
+
+        // Generate verification token
+        const verificationToken = jwt.sign(
+            { id: user._id, email: user.email, type: 'email_verification' },
+            process.env.JWT_SECRET,
+            { expiresIn: '30m' }
+        );
+
+        // Return error with verification token
+        const error = new AppError('Please verify your email first. Verification code has been sent to your email.', 403);
+        error.verificationToken = verificationToken;
+        return next(error);
     }
 
     // Generate token
@@ -237,4 +293,143 @@ exports.changePassword = asyncHandler(async (req, res, next) => {
 exports.deleteAccount = asyncHandler(async (req, res, next) => {
     await User.findByIdAndDelete(req.user._id);
     res.status(204).json({ success: true, data: null });
+});
+
+// ✅ Verify Email with Code
+exports.verifyEmail = asyncHandler(async (req, res, next) => {
+    const { code, verificationToken } = req.body;
+
+    if (!code || !verificationToken) {
+        return next(new AppError('Verification code and token are required', 400));
+    }
+
+    // Verify JWT token
+    let decoded;
+    try {
+        decoded = jwt.verify(verificationToken, process.env.JWT_SECRET);
+        if (decoded.type !== 'email_verification') {
+            return next(new AppError('Invalid verification token', 400));
+        }
+    } catch (error) {
+        if (error.name === 'TokenExpiredError') {
+            return next(new AppError('Verification token has expired. Please register again.', 401));
+        }
+        return next(new AppError('Invalid verification token', 400));
+    }
+
+    // Find user and verification code
+    const user = await User.findById(decoded.id).select('+verificationCode +verificationCodeExpires');
+    
+    if (!user) {
+        return next(new AppError('User not found', 404));
+    }
+
+    // Check if email is already verified
+    if (user.emailVerified) {
+        return next(new AppError('Email is already verified', 400));
+    }
+
+    // Check if verification code matches
+    if (user.verificationCode !== code) {
+        return next(new AppError('Invalid verification code', 400));
+    }
+
+    // Check if verification code has expired
+    if (user.verificationCodeExpires < new Date()) {
+        // Generate new code
+        const newCode = Math.floor(100000 + Math.random() * 900000).toString();
+        const newExpires = new Date(Date.now() + 30 * 60 * 1000);
+        
+        user.verificationCode = newCode;
+        user.verificationCodeExpires = newExpires;
+        await user.save({ validateBeforeSave: false });
+
+        // Send new verification email
+        try {
+            await sendVerificationEmail(user.email, newCode);
+        } catch (emailError) {
+            console.error('Error sending verification email:', emailError);
+        }
+
+        return next(new AppError('Verification code has expired. A new code has been sent to your email.', 400));
+    }
+
+    // Verify the email
+    user.emailVerified = true;
+    user.verificationCode = undefined;
+    user.verificationCodeExpires = undefined;
+    await user.save({ validateBeforeSave: false });
+
+    // Generate auth token for the user
+    const token = user.generateAuthToken();
+
+    res.status(200).json({
+        success: true,
+        message: 'Email verified successfully',
+        token,
+        user: {
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            phone: user.phone,
+            emailVerified: user.emailVerified,
+            addresses: user.addresses || []
+        }
+    });
+});
+
+// ✅ Resend Verification Code
+exports.resendVerificationCode = asyncHandler(async (req, res, next) => {
+    const { verificationToken } = req.body;
+
+    if (!verificationToken) {
+        return next(new AppError('Verification token is required', 400));
+    }
+
+    // Verify JWT token
+    let decoded;
+    try {
+        decoded = jwt.verify(verificationToken, process.env.JWT_SECRET);
+        if (decoded.type !== 'email_verification') {
+            return next(new AppError('Invalid verification token', 400));
+        }
+    } catch (error) {
+        if (error.name === 'TokenExpiredError') {
+            return next(new AppError('Verification token has expired. Please register again.', 401));
+        }
+        return next(new AppError('Invalid verification token', 400));
+    }
+
+    // Find user
+    const user = await User.findById(decoded.id);
+    
+    if (!user) {
+        return next(new AppError('User not found', 404));
+    }
+
+    // Check if email is already verified
+    if (user.emailVerified) {
+        return next(new AppError('Email is already verified', 400));
+    }
+
+    // Generate new verification code
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const verificationCodeExpires = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+
+    user.verificationCode = verificationCode;
+    user.verificationCodeExpires = verificationCodeExpires;
+    await user.save({ validateBeforeSave: false });
+
+    // Send verification email
+    try {
+        await sendVerificationEmail(user.email, verificationCode);
+    } catch (emailError) {
+        return next(new AppError('Failed to send verification email. Please try again.', 500));
+    }
+
+    res.status(200).json({
+        success: true,
+        message: 'Verification code has been resent to your email'
+    });
 });

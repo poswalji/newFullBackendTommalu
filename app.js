@@ -195,20 +195,25 @@ app.use((err, req, res, next) => {
     success: false,
     error: {
       message: err.message || 'Internal server error',
-      ...(err.name && { type: err.name }),
+      type: err.name || 'Error',
+      path: req.path || req.originalUrl || req.url,
+      method: req.method || 'UNKNOWN',
     },
   };
   
   // Add stack trace in development
   if (process.env.NODE_ENV !== 'production') {
     errorResponse.error.stack = err.stack;
-    errorResponse.error.path = req.path;
-    errorResponse.error.method = req.method;
   }
   
   // Add validation errors if present
   if (err.errors && typeof err.errors === 'object') {
     errorResponse.error.errors = err.errors;
+  }
+
+  // Add verification token if present (for email verification flow)
+  if (err.verificationToken) {
+    errorResponse.verificationToken = err.verificationToken;
   }
   
   // Send error response
