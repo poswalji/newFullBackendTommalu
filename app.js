@@ -14,7 +14,7 @@ const app = express();
 // MongoDB connection configuration
 const mongoUri = process.env.MONGO_URI;
 mongoose.set("strictQuery", true);
-mongoose.set("bufferCommands", false);
+
 
 // Global error handlers - must be defined before routes
 process.on('unhandledRejection', (reason, promise) => {

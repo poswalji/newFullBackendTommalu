@@ -25,3 +25,4 @@ router.delete('/admin/:id', restrictTo('admin'), promotionController.deletePromo
 module.exports = router;
 
 
+
