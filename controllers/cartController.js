@@ -124,6 +124,7 @@ exports.addToCart = asyncHandler(async (req, res, next) => {
   const menuItem = await MenuItem.findById(menuItemId).populate('storeId', 'name');
   if (!menuItem) return next(new AppError('Menu item not found', 404));
   if (menuItem.isAvailable === false) return next(new AppError('Item unavailable', 400));
+  if (!menuItem.storeId) return next(new AppError('Menu item store is missing', 400));
 
   let cart;
   if (req.user?._id) {
@@ -158,8 +159,8 @@ exports.addToCart = asyncHandler(async (req, res, next) => {
         price: menuItem.price,
         quantity: Number(quantity),
         image: menuItem.image || '',
-         storeId: menuItem.storeId._id,
-    storeName: menuItem.storeId.name
+        storeId: menuItem.storeId._id,
+        storeName: menuItem.storeId.name,
       });
     }
 
@@ -193,7 +194,7 @@ exports.addToCart = asyncHandler(async (req, res, next) => {
         quantity: Number(quantity),
         image: menuItem.image || '',
         storeId: menuItem.storeId._id,
-    storeName: menuItem.storeId.name
+        storeName: menuItem.storeId.name,
       });
     }
 
