@@ -82,6 +82,9 @@ router.post('/login', authController.loginUser); //  Add login route
  */
 router.post('/logout', authController.logoutUser);
 
+// Refresh access token
+router.post('/refresh', authController.refreshToken);
+
 /**
  * @openapi
  * /api/auth/google:

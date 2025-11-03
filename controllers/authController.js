@@ -118,8 +118,22 @@ exports.loginUser = asyncHandler(async (req, res, next) => {
         return next(error);
     }
 
-    // Generate token
+    // Generate tokens
     const token = user.generateAuthToken();
+    const refreshToken = jwt.sign(
+        { id: user._id, type: 'refresh' },
+        process.env.REFRESH_JWT_SECRET || process.env.JWT_SECRET,
+        { expiresIn: process.env.REFRESH_JWT_EXPIRES_IN || '30d' }
+    );
+
+    // Set httpOnly refresh cookie
+    res.cookie('refreshToken', refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 30 * 24 * 60 * 60 * 1000,
+        path: '/'
+    });
 
     res.status(200).json({
         success: true,
@@ -139,6 +153,7 @@ exports.loginUser = asyncHandler(async (req, res, next) => {
 exports.logoutUser = asyncHandler(async (req, res, next) => {
     // Since we're using JWT tokens (stateless), logout is mainly client-side
     // But we provide an endpoint for consistency
+    res.clearCookie('refreshToken', { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/' });
     res.status(200).json({
         success: true,
         message: 'Logged out successfully'
@@ -202,9 +217,23 @@ exports.googleAuth = asyncHandler(async (req, res, next) => {
 
         // ✅ Generate unique JWT token
         const token = user.generateAuthToken();
+        const refreshToken = jwt.sign(
+            { id: user._id, type: 'refresh' },
+            process.env.REFRESH_JWT_SECRET || process.env.JWT_SECRET,
+            { expiresIn: process.env.REFRESH_JWT_EXPIRES_IN || '30d' }
+        );
 
         console.log('✅ Google auth successful for:', user.email);
         console.log('🔑 Token generated for user:', user._id);
+
+        // Set httpOnly refresh cookie
+        res.cookie('refreshToken', refreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: 30 * 24 * 60 * 60 * 1000,
+            path: '/'
+        });
 
         res.status(200).json({
             success: true,
@@ -360,8 +389,22 @@ exports.verifyEmail = asyncHandler(async (req, res, next) => {
     user.verificationCodeExpires = undefined;
     await user.save({ validateBeforeSave: false });
 
-    // Generate auth token for the user
+    // Generate auth token for the user and refresh token
     const token = user.generateAuthToken();
+    const refreshToken = jwt.sign(
+        { id: user._id, type: 'refresh' },
+        process.env.REFRESH_JWT_SECRET || process.env.JWT_SECRET,
+        { expiresIn: process.env.REFRESH_JWT_EXPIRES_IN || '30d' }
+    );
+
+    // Set httpOnly refresh cookie
+    res.cookie('refreshToken', refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 30 * 24 * 60 * 60 * 1000,
+        path: '/'
+    });
 
     res.status(200).json({
         success: true,
@@ -377,6 +420,40 @@ exports.verifyEmail = asyncHandler(async (req, res, next) => {
             addresses: user.addresses || []
         }
     });
+});
+
+// ✅ Refresh Access Token using httpOnly cookie
+exports.refreshToken = asyncHandler(async (req, res, next) => {
+    const token = req.cookies && req.cookies.refreshToken;
+    if (!token) return next(new AppError('Refresh token missing', 401));
+
+    try {
+        const decoded = jwt.verify(token, process.env.REFRESH_JWT_SECRET || process.env.JWT_SECRET);
+        if (!decoded || decoded.type !== 'refresh') return next(new AppError('Invalid refresh token', 401));
+
+        const user = await User.findById(decoded.id);
+        if (!user) return next(new AppError('User not found', 401));
+
+        // Issue new access token and rotate refresh token
+        const newAccessToken = user.generateAuthToken();
+        const newRefreshToken = jwt.sign(
+            { id: user._id, type: 'refresh' },
+            process.env.REFRESH_JWT_SECRET || process.env.JWT_SECRET,
+            { expiresIn: process.env.REFRESH_JWT_EXPIRES_IN || '30d' }
+        );
+
+        res.cookie('refreshToken', newRefreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: 30 * 24 * 60 * 60 * 1000,
+            path: '/'
+        });
+
+        res.status(200).json({ success: true, token: newAccessToken });
+    } catch (err) {
+        return next(new AppError('Invalid or expired refresh token', 401));
+    }
 });
 
 // ✅ Resend Verification Code
