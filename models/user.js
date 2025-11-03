@@ -19,6 +19,7 @@ const userSchema = new mongoose.Schema({
   },
   phone: {
     type: String,
+    unique:false,
     validate: {
       validator: function(v) {
         // Basic phone validation - adjust regex as needed
