@@ -171,7 +171,34 @@ app.use((req, res, next) => {
 // Error middleware - must be last middleware
 app.use((err, req, res, next) => {
   // Determine status code
-  const statusCode = err.statusCode || res.statusCode || 500;
+  let statusCode = err.statusCode || 500;
+  
+  // Handle MongoDB errors specifically
+  if (err.name === 'MongoServerError' || err.name === 'MongoError') {
+    // MongoDB validation/duplicate key errors
+    if (err.code === 11000) {
+      statusCode = 400; // Bad Request for duplicate key
+    } else if (err.message && err.message.includes('validation')) {
+      statusCode = 400; // Bad Request for validation errors
+    } else {
+      statusCode = 500; // Internal Server Error for other MongoDB errors
+    }
+  }
+  
+  // Handle Mongoose validation errors
+  if (err.name === 'ValidationError') {
+    statusCode = 400; // Bad Request
+  }
+  
+  // Handle Cast errors (invalid ObjectId, etc.)
+  if (err.name === 'CastError') {
+    statusCode = 400; // Bad Request
+  }
+  
+  // Ensure we never return 200 for errors
+  if (statusCode === 200 || !statusCode) {
+    statusCode = 500;
+  }
   
   // Log error with comprehensive details
   logger.error('Error occurred in request', {
@@ -216,7 +243,7 @@ app.use((err, req, res, next) => {
     errorResponse.verificationToken = err.verificationToken;
   }
   
-  // Send error response
+  // Send error response with proper status code (never 200)
   res.status(statusCode).json(errorResponse);
 });
 

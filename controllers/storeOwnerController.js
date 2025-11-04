@@ -123,7 +123,10 @@ exports.createStore = asyncHandler(async (req, res, next) => {
         minOrder,
         openingTime,
         closingTime,
-        deliveryFee
+        deliveryFee,
+        latitude,
+        longitude,
+        location
     } = req.body;
 
     // ✅ Check if user already has a store with same name
@@ -141,7 +144,23 @@ exports.createStore = asyncHandler(async (req, res, next) => {
         return next(new AppError('License number already exists', 400));
     }
 
-    const store = await Store.create({
+    // ✅ Prepare location data if coordinates are provided
+    let locationData = undefined;
+    if (location && location.coordinates && Array.isArray(location.coordinates) && location.coordinates.length === 2) {
+        // If location object with coordinates is provided
+        locationData = {
+            type: 'Point',
+            coordinates: [location.coordinates[0], location.coordinates[1]] // [longitude, latitude]
+        };
+    } else if (latitude !== undefined && longitude !== undefined) {
+        // If latitude and longitude are provided separately
+        locationData = {
+            type: 'Point',
+            coordinates: [parseFloat(longitude), parseFloat(latitude)] // [longitude, latitude]
+        };
+    }
+
+    const storeData = {
         ownerId,
         storeName,
         address,
@@ -155,7 +174,14 @@ exports.createStore = asyncHandler(async (req, res, next) => {
         openingTime: openingTime || "09:00",
         closingTime: closingTime || "23:00",
         deliveryFee: deliveryFee || 0
-    });
+    };
+
+    // Only set location if coordinates are provided
+    if (locationData) {
+        storeData.location = locationData;
+    }
+
+    const store = await Store.create(storeData);
 
     // ✅ Update user's stores array
     await User.findByIdAndUpdate(ownerId, {
