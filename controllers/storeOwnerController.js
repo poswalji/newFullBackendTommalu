@@ -207,6 +207,10 @@ exports.createStore = asyncHandler(async (req, res, next) => {
             deliveryFee: store.deliveryFee,
             status: store.status,
             isVerified: store.isVerified,
+            verificationStatus: store.status, // Add for frontend compatibility
+            isOpen: store.isOpen,
+            rating: store.rating,
+            totalReviews: store.totalReviews,
             ownerId: store.ownerId,
             createdAt: store.createdAt
         }
@@ -459,6 +463,7 @@ exports.getStoreById = asyncHandler(async (req, res, next) => {
             isOpen: store.isOpen,
             status: store.status,
             isVerified: store.isVerified,
+            verificationStatus: store.status, // Add for frontend compatibility
             rating: store.rating,
             totalReviews: store.totalReviews,
             menu: store.menu || [],
@@ -495,6 +500,7 @@ exports.getMyStores = asyncHandler(async (req, res, next) => {
             isOpen: store.isOpen,
             status: store.status,
             isVerified: store.isVerified,
+            verificationStatus: store.status, // Add for frontend compatibility
             rating: store.rating,
             totalReviews: store.totalReviews,
             menu: store.menu,
