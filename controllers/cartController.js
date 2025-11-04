@@ -161,11 +161,9 @@ exports.addToCart = asyncHandler(async (req, res, next) => {
       });
     }
 
-    // Ensure storeName is set if missing
-    if (!cart.storeName) {
-      cart.storeName = storeName;
-      cart.storeId = storeId;
-    }
+    // Always ensure cart is aligned to current store before proceeding
+    cart.storeName = storeName;
+    cart.storeId = storeId;
 
     // Prevent mixing stores
     if (cart.storeId && cart.storeId.toString() !== storeId.toString()) {
