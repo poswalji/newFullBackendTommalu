@@ -140,10 +140,11 @@ exports.addToCart = asyncHandler(async (req, res, next) => {
     menuItem.storeId = { _id: store._id, name: store.name };
   }
 
-  // Default image if missing
-  const defaultImage = menuItem.image && menuItem.image.trim() !== '' 
-    ? menuItem.image 
-    : '/placeholder-image.jpg'; // Default placeholder image
+  // Default image if missing (prefer first images[] entry, then legacy image)
+  const candidateImage = (Array.isArray(menuItem.images) && menuItem.images[0]) || menuItem.image || '';
+  const defaultImage = candidateImage && String(candidateImage).trim() !== ''
+    ? candidateImage
+    : '/placeholder-image.jpg';
 
   let cart;
   if (req.user?._id) {
@@ -194,6 +195,11 @@ exports.addToCart = asyncHandler(async (req, res, next) => {
     cart.totalItems = cart.items.reduce((sum, i) => sum + i.quantity, 0);
     cart.totalAmount = cart.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
 
+    // Final guard: ensure storeName exists when saving with items
+    if ((cart.items?.length || 0) > 0 && !cart.storeName) {
+      cart.storeName = storeName;
+      cart.storeId = storeId;
+    }
     await cart.save();
     await cart.populate('items.menuItemId', 'name price image storeId');
 
