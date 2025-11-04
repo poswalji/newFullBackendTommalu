@@ -186,8 +186,7 @@ exports.addToCart = asyncHandler(async (req, res, next) => {
         price: menuItem.price,
         quantity: Number(quantity),
         image: defaultImage,
-        storeId: storeId,
-        storeName: storeName,
+       
       });
     }
 
