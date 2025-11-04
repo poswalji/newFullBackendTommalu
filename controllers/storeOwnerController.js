@@ -3,10 +3,16 @@ const User = require("../models/user");
 const MenuItem = require("../models/menuItems");
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/appError');
+const { isValidObjectId, sanitizePagination, sanitizeString, sanitizeSearchQuery } = require('../utils/validators');
 
 // ✅ Get Store Owner with better population
 exports.getStoreOwner = asyncHandler(async (req, res, next) => {
     const ownerId = req.params.id;
+
+    // Validate ObjectId
+    if (!isValidObjectId(ownerId)) {
+        return next(new AppError('Invalid owner ID', 400));
+    }
 
     const user = await User.findById(ownerId).populate({
         path: 'stores',
@@ -173,7 +179,8 @@ exports.createStore = asyncHandler(async (req, res, next) => {
         minOrder: minOrder || 49,
         openingTime: openingTime || "09:00",
         closingTime: closingTime || "23:00",
-        deliveryFee: deliveryFee || 0
+        deliveryFee: deliveryFee || 0,
+        status: 'pendingApproval' // Set status to pendingApproval when store is created (ready for admin review)
     };
 
     // Only set location if coordinates are provided
@@ -222,6 +229,11 @@ exports.updateStore = asyncHandler(async (req, res, next) => {
     const storeId = req.params.id;
     const ownerId = req.user._id;
 
+    // Validate ObjectId
+    if (!isValidObjectId(storeId)) {
+        return next(new AppError('Invalid store ID', 400));
+    }
+
     // Check if store exists and user owns it
     const store = await Store.findOne({ _id: storeId, ownerId });
     if (!store) {
@@ -229,6 +241,13 @@ exports.updateStore = asyncHandler(async (req, res, next) => {
     }
 
     const updates = { ...req.body };
+    
+    // Sanitize string inputs
+    if (updates.storeName) updates.storeName = sanitizeString(updates.storeName, 100);
+    if (updates.address) updates.address = sanitizeString(updates.address, 500);
+    if (updates.description) updates.description = sanitizeString(updates.description, 1000);
+    if (updates.phone) updates.phone = sanitizeString(updates.phone, 20);
+    if (updates.licenseNumber) updates.licenseNumber = sanitizeString(updates.licenseNumber, 50);
 
     // ✅ Remove fields that shouldn't be updated directly
     delete updates.ownerId;
@@ -287,6 +306,11 @@ exports.updateStore = asyncHandler(async (req, res, next) => {
 exports.deleteStore = asyncHandler(async (req, res, next) => {
     const storeId = req.params.id;
     const ownerId = req.user._id;
+
+    // Validate ObjectId
+    if (!isValidObjectId(storeId)) {
+        return next(new AppError('Invalid store ID', 400));
+    }
 
     // Check if store exists and user owns it
     const store = await Store.findOne({ _id: storeId, ownerId });
@@ -501,11 +525,51 @@ exports.getMyStores = asyncHandler(async (req, res, next) => {
             status: store.status,
             isVerified: store.isVerified,
             verificationStatus: store.status, // Add for frontend compatibility
-            rating: store.rating,
-            totalReviews: store.totalReviews,
-            menu: store.menu,
+            rating: store.rating || 0,
+            totalReviews: store.totalReviews || 0,
+            menu: store.menu || [],
             createdAt: store.createdAt
         }))
+    });
+});
+
+// ✅ NEW: Submit store for approval (change from draft to pendingApproval)
+exports.submitStoreForApproval = asyncHandler(async (req, res, next) => {
+    const storeId = req.params.id;
+    const ownerId = req.user._id;
+
+    // Validate ObjectId
+    if (!isValidObjectId(storeId)) {
+        return next(new AppError('Invalid store ID', 400));
+    }
+
+    const store = await Store.findOne({ _id: storeId, ownerId });
+    if (!store) {
+        return next(new AppError('Store not found or you do not have permission', 404));
+    }
+
+    // Only allow submission if store is in draft status
+    if (store.status !== 'draft') {
+        return next(new AppError(`Store cannot be submitted. Current status: ${store.status}`, 400));
+    }
+
+    // Validate required fields before submission
+    if (!store.storeName || !store.address || !store.phone || !store.licenseNumber || !store.category) {
+        return next(new AppError('Please complete all required fields before submitting for approval', 400));
+    }
+
+    store.status = 'pendingApproval';
+    await store.save();
+
+    res.status(200).json({
+        success: true,
+        message: 'Store submitted for approval. Waiting for admin verification.',
+        data: {
+            id: store._id,
+            storeName: store.storeName,
+            status: store.status,
+            isVerified: store.isVerified
+        }
     });
 });
 
@@ -513,6 +577,11 @@ exports.getMyStores = asyncHandler(async (req, res, next) => {
 exports.toggleStoreStatus = asyncHandler(async (req, res, next) => {
     const storeId = req.params.id;
     const ownerId = req.user._id;
+
+    // Validate ObjectId
+    if (!isValidObjectId(storeId)) {
+        return next(new AppError('Invalid store ID', 400));
+    }
 
     const store = await Store.findOne({ _id: storeId, ownerId });
     if (!store) {

@@ -406,7 +406,13 @@ exports.toggleAvailability = asyncHandler(async (req, res, next) => {
         data: {
             id: menuItem._id,
             name: menuItem.name,
-            isAvailable: menuItem.isAvailable
+            isAvailable: menuItem.isAvailable,
+            price: menuItem.price,
+            category: menuItem.category,
+            description: menuItem.description,
+            foodType: menuItem.foodType,
+            stockQuantity: menuItem.stockQuantity,
+            image: menuItem.images?.[0]
         }
     });
 });
