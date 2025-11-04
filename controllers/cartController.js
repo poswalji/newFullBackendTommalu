@@ -126,6 +126,25 @@ exports.addToCart = asyncHandler(async (req, res, next) => {
   if (menuItem.isAvailable === false) return next(new AppError('Item unavailable', 400));
   if (!menuItem.storeId) return next(new AppError('Menu item store is missing', 400));
 
+  // Get store name - handle both populated and non-populated cases
+  let storeName = menuItem.storeId?.name || '';
+  let storeId = menuItem.storeId?._id || menuItem.storeId;
+  
+  // If storeId is not populated (just an ObjectId), fetch the store
+  if (!storeName && menuItem.storeId) {
+    const store = await Store.findById(menuItem.storeId);
+    if (!store) return next(new AppError('Store not found', 404));
+    storeName = store.name;
+    storeId = store._id;
+    // Update menuItem.storeId for consistency
+    menuItem.storeId = { _id: store._id, name: store.name };
+  }
+
+  // Default image if missing
+  const defaultImage = menuItem.image && menuItem.image.trim() !== '' 
+    ? menuItem.image 
+    : '/placeholder-image.jpg'; // Default placeholder image
+
   let cart;
   if (req.user?._id) {
     // ✅ Logged-in user
@@ -134,16 +153,22 @@ exports.addToCart = asyncHandler(async (req, res, next) => {
     if (!cart) {
       cart = new Cart({
         userId,
-        storeId: menuItem.storeId._id,
-        storeName: menuItem.storeId.name,
+        storeId: storeId,
+        storeName: storeName,
         items: [],
         totalAmount: 0,
         totalItems: 0,
       });
     }
 
+    // Ensure storeName is set if missing
+    if (!cart.storeName) {
+      cart.storeName = storeName;
+      cart.storeId = storeId;
+    }
+
     // Prevent mixing stores
-    if (cart.storeId && cart.storeId.toString() !== menuItem.storeId._id.toString()) {
+    if (cart.storeId && cart.storeId.toString() !== storeId.toString()) {
       return next(new AppError('You can only order from one store at a time. Clear cart to change store.', 400));
     }
 
@@ -152,15 +177,19 @@ exports.addToCart = asyncHandler(async (req, res, next) => {
     if (existingItem) {
       existingItem.quantity += Number(quantity);
       existingItem.price = menuItem.price;
+      // Update image if it was empty
+      if (!existingItem.image || existingItem.image.trim() === '') {
+        existingItem.image = defaultImage;
+      }
     } else {
       cart.items.push({
         menuItemId,
         itemName: menuItem.name,
         price: menuItem.price,
         quantity: Number(quantity),
-        image: menuItem.image || '',
-        storeId: menuItem.storeId._id,
-        storeName: menuItem.storeId.name,
+        image: defaultImage,
+        storeId: storeId,
+        storeName: storeName,
       });
     }
 
@@ -175,10 +204,20 @@ exports.addToCart = asyncHandler(async (req, res, next) => {
     // ✅ Guest user
     const sessionId = getOrCreateSessionId(req, res);
 
-    cart = guestCarts.get(sessionId) || { items: [], storeId: menuItem.storeId._id, storeName: menuItem.storeId.name };
+    cart = guestCarts.get(sessionId) || { 
+      items: [], 
+      storeId: storeId, 
+      storeName: storeName 
+    };
+    
+    // Ensure storeName is set
+    if (!cart.storeName) {
+      cart.storeName = storeName;
+      cart.storeId = storeId;
+    }
     
     // Prevent mixing stores
-    if (cart.storeId && cart.storeId.toString() !== menuItem.storeId._id.toString()) {
+    if (cart.storeId && cart.storeId.toString() !== storeId.toString()) {
       return next(new AppError('You can only order from one store at a time. Clear cart to change store.', 400));
     }
 
@@ -186,15 +225,19 @@ exports.addToCart = asyncHandler(async (req, res, next) => {
     if (existingItem) {
       existingItem.quantity += Number(quantity);
       existingItem.price = menuItem.price;
+      // Update image if it was empty
+      if (!existingItem.image || existingItem.image.trim() === '') {
+        existingItem.image = defaultImage;
+      }
     } else {
       cart.items.push({
         menuItemId,
         itemName: menuItem.name,
         price: menuItem.price,
         quantity: Number(quantity),
-        image: menuItem.image || '',
-        storeId: menuItem.storeId._id,
-        storeName: menuItem.storeId.name,
+        image: defaultImage,
+        storeId: storeId,
+        storeName: storeName,
       });
     }
 
