@@ -248,6 +248,26 @@ router.post('/stores/:storeId/menu', uploadSingle, menuItemController.addMenuIte
  */
 router.patch('/menu/:menuItemId', uploadSingle, menuItemController.updateMenuItem);
 
+// Get menu item by ID
+/**
+ * @openapi
+ * /api/store-owner/menu/{menuItemId}:
+ *   get:
+ *     tags: [StoreOwner]
+ *     summary: Get menu item by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: menuItemId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Menu item details
+ */
+router.get('/menu/:menuItemId', menuItemController.getMenuItemById);
+
 // Delete menu item
 /**
  * @openapi

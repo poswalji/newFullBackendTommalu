@@ -1,5 +1,6 @@
 const MenuItem = require('../models/menuItems');
 const asyncHandler = require('../utils/asyncHandler');
+const AppError = require('../utils/appError');
 
 // ✅ NEW: Get all products across stores with category filter (for customer browsing)
 exports.getAllProducts = asyncHandler(async (req, res, next) => {
@@ -173,10 +174,7 @@ exports.addMenuItem = asyncHandler(async (req, res, next) => {
 
     // Validate required fields
     if (!name || !price || !category) {
-        return res.status(400).json({
-            success: false,
-            message: 'Name, price, and category are required'
-        });
+        return next(new AppError('Name, price, and category are required', 400));
     }
 
     // Check if store exists and belongs to user (for store owners)
@@ -184,19 +182,13 @@ exports.addMenuItem = asyncHandler(async (req, res, next) => {
     const store = await Store.findById(storeId);
     
     if (!store) {
-        return res.status(404).json({
-            success: false,
-            message: 'Store not found'
-        });
+        return next(new AppError('Store not found', 404));
     }
 
     // If user is logged in (store owner route), verify ownership
     if (req.user && req.user.role === 'storeOwner') {
         if (store.ownerId.toString() !== req.user._id.toString()) {
-            return res.status(403).json({
-                success: false,
-                message: 'You do not have permission to add items to this store'
-            });
+            return next(new AppError('You do not have permission to add items to this store', 403));
         }
     }
 
@@ -271,10 +263,7 @@ exports.updateMenuItem = asyncHandler(async (req, res, next) => {
     const menuItem = await MenuItem.findById(menuItemId);
     
     if (!menuItem) {
-        return res.status(404).json({
-            success: false,
-            message: 'Menu item not found'
-        });
+        return next(new AppError('Menu item not found', 404));
     }
 
     // Verify ownership if user is store owner
@@ -283,10 +272,7 @@ exports.updateMenuItem = asyncHandler(async (req, res, next) => {
         const store = await Store.findById(menuItem.storeId);
         
         if (!store || store.ownerId.toString() !== req.user._id.toString()) {
-            return res.status(403).json({
-                success: false,
-                message: 'You do not have permission to update this menu item'
-            });
+            return next(new AppError('You do not have permission to update this menu item', 403));
         }
     }
 
@@ -371,10 +357,7 @@ exports.deleteMenuItem = asyncHandler(async (req, res, next) => {
     const menuItem = await MenuItem.findById(menuItemId);
     
     if (!menuItem) {
-        return res.status(404).json({
-            success: false,
-            message: 'Menu item not found'
-        });
+        return next(new AppError('Menu item not found', 404));
     }
 
     // Verify ownership if user is store owner
@@ -383,10 +366,7 @@ exports.deleteMenuItem = asyncHandler(async (req, res, next) => {
         const store = await Store.findById(menuItem.storeId);
         
         if (!store || store.ownerId.toString() !== req.user._id.toString()) {
-            return res.status(403).json({
-                success: false,
-                message: 'You do not have permission to delete this menu item'
-            });
+            return next(new AppError('You do not have permission to delete this menu item', 403));
         }
     }
 
@@ -405,10 +385,7 @@ exports.toggleAvailability = asyncHandler(async (req, res, next) => {
     const menuItem = await MenuItem.findById(menuItemId);
     
     if (!menuItem) {
-        return res.status(404).json({
-            success: false,
-            message: 'Menu item not found'
-        });
+        return next(new AppError('Menu item not found', 404));
     }
 
     // Verify ownership if user is store owner
@@ -417,10 +394,7 @@ exports.toggleAvailability = asyncHandler(async (req, res, next) => {
         const store = await Store.findById(menuItem.storeId);
         
         if (!store || store.ownerId.toString() !== req.user._id.toString()) {
-            return res.status(403).json({
-                success: false,
-                message: 'You do not have permission to toggle availability of this menu item'
-            });
+            return next(new AppError('You do not have permission to toggle availability of this menu item', 403));
         }
     }
 
@@ -433,6 +407,56 @@ exports.toggleAvailability = asyncHandler(async (req, res, next) => {
             id: menuItem._id,
             name: menuItem.name,
             isAvailable: menuItem.isAvailable
+        }
+    });
+});
+
+// ✅ Get menu item by ID
+exports.getMenuItemById = asyncHandler(async (req, res, next) => {
+    const { menuItemId } = req.params;
+
+    const menuItem = await MenuItem.findById(menuItemId)
+        .populate('storeId', 'storeName category address phone isOpen rating');
+    
+    if (!menuItem) {
+        return next(new AppError('Menu item not found', 404));
+    }
+
+    // Verify ownership if user is store owner
+    if (req.user && req.user.role === 'storeOwner') {
+        const Store = require('../models/store');
+        const store = await Store.findById(menuItem.storeId);
+        
+        if (!store || store.ownerId.toString() !== req.user._id.toString()) {
+            return next(new AppError('You do not have permission to view this menu item', 403));
+        }
+    }
+
+    res.status(200).json({
+        success: true,
+        data: {
+            id: menuItem._id,
+            name: menuItem.name,
+            price: menuItem.price,
+            originalPrice: menuItem.originalPrice,
+            category: menuItem.category,
+            description: menuItem.description,
+            isAvailable: menuItem.isAvailable,
+            stockQuantity: menuItem.stockQuantity,
+            image: menuItem.images?.[0],
+            images: menuItem.images,
+            foodType: menuItem.foodType,
+            preparationTime: menuItem.preparationTime,
+            discount: menuItem.discount,
+            tags: menuItem.tags,
+            customizations: menuItem.customizations,
+            isBestSeller: menuItem.isBestSeller,
+            isSpecial: menuItem.isSpecial,
+            timesOrdered: menuItem.timesOrdered,
+            storeId: menuItem.storeId?._id || menuItem.storeId,
+            storeName: menuItem.storeId?.storeName,
+            createdAt: menuItem.createdAt,
+            updatedAt: menuItem.updatedAt
         }
     });
 });
