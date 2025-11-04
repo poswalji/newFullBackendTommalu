@@ -29,9 +29,9 @@ exports.listUsers = asyncHandler(async (req, res) => {
   
   const filter = {};
   
-  // Validate enum values
+  // Validate enum values - must match model enums exactly
   if (role) {
-    const validRole = validateEnum(role, ['customer', 'storeOwner', 'admin', 'delivery']);
+    const validRole = validateEnum(role, ['customer', 'admin', 'storeOwner', 'delivery']);
     if (validRole) filter.role = validRole;
   }
   if (status) {
