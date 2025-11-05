@@ -11,26 +11,58 @@ const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/appError');
 const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
+const { 
+  escapeRegExp, 
+  isValidObjectId, 
+  sanitizePagination, 
+  sanitizeString, 
+  validateEnum,
+  sanitizeSearchQuery 
+} = require('../utils/validators');
 
 // GET /api/admin/users
 exports.listUsers = asyncHandler(async (req, res) => {
   const { role, status, phone, email, q, page = 1, limit = 20 } = req.query;
+  
+  // Validate and sanitize pagination
+  const { page: pageNum, limit: limitNum, skip } = sanitizePagination(page, limit, 100);
+  
   const filter = {};
-  if (role) filter.role = role;
-  if (status) filter.status = status;
-  if (phone) filter.phone = new RegExp(phone, 'i');
-  if (email) filter.email = new RegExp(email, 'i');
+  
+  // Validate enum values - must match model enums exactly
+  if (role) {
+    const validRole = validateEnum(role, ['customer', 'admin', 'storeOwner', 'delivery']);
+    if (validRole) filter.role = validRole;
+  }
+  if (status) {
+    const validStatus = validateEnum(status, ['active', 'suspended']);
+    if (validStatus) filter.status = validStatus;
+  }
+  
+  // Sanitize and escape regex inputs to prevent injection
+  if (phone) {
+    const sanitizedPhone = sanitizeSearchQuery(phone, 50);
+    if (sanitizedPhone) filter.phone = new RegExp(sanitizedPhone, 'i');
+  }
+  if (email) {
+    const sanitizedEmail = sanitizeSearchQuery(email, 100);
+    if (sanitizedEmail) filter.email = new RegExp(sanitizedEmail, 'i');
+  }
+  
+  // Sanitize search query
   if (q) {
-    filter.$or = [
-      { name: new RegExp(q, 'i') },
-      { email: new RegExp(q, 'i') },
-      { phone: new RegExp(q, 'i') }
-    ];
+    const sanitizedQ = sanitizeSearchQuery(q, 100);
+    if (sanitizedQ) {
+      filter.$or = [
+        { name: new RegExp(sanitizedQ, 'i') },
+        { email: new RegExp(sanitizedQ, 'i') },
+        { phone: new RegExp(sanitizedQ, 'i') }
+      ];
+    }
   }
 
-  const skip = (Number(page) - 1) * Number(limit);
   const [items, total] = await Promise.all([
-    User.find(filter).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
+    User.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limitNum),
     User.countDocuments(filter)
   ]);
 
@@ -48,17 +80,24 @@ exports.listUsers = asyncHandler(async (req, res) => {
     })), 
     total,
     pagination: {
-      page: Number(page), 
-      limit: Number(limit),
-      totalPages: Math.ceil(total / Number(limit))
+      page: pageNum, 
+      limit: limitNum,
+      totalPages: Math.ceil(total / limitNum)
     } 
   });
 });
 
 // PATCH /api/admin/users/:id/suspend
 exports.suspendUser = asyncHandler(async (req, res, next) => {
+  const userId = req.params.id;
+  
+  // Validate ObjectId
+  if (!isValidObjectId(userId)) {
+    return next(new AppError('Invalid user ID', 400));
+  }
+  
   const user = await User.findByIdAndUpdate(
-    req.params.id,
+    userId,
     { status: 'suspended' },
     { new: true }
   );
@@ -79,8 +118,15 @@ exports.suspendUser = asyncHandler(async (req, res, next) => {
 
 // PATCH /api/admin/users/:id/reactivate
 exports.reactivateUser = asyncHandler(async (req, res, next) => {
+  const userId = req.params.id;
+  
+  // Validate ObjectId
+  if (!isValidObjectId(userId)) {
+    return next(new AppError('Invalid user ID', 400));
+  }
+  
   const user = await User.findByIdAndUpdate(
-    req.params.id,
+    userId,
     { status: 'active' },
     { new: true }
   );
@@ -133,9 +179,9 @@ exports.getUserOrders = asyncHandler(async (req, res, next) => {
     data: items, 
     total, 
     pagination: {
-      page: Number(page), 
-      limit: Number(limit),
-      totalPages: Math.ceil(total / Number(limit))
+      page: pageNum, 
+      limit: limitNum,
+      totalPages: Math.ceil(total / limitNum)
     }
   });
 });
@@ -159,9 +205,9 @@ exports.getUserTransactions = asyncHandler(async (req, res) => {
     data: items, 
     total, 
     pagination: {
-      page: Number(page), 
-      limit: Number(limit),
-      totalPages: Math.ceil(total / Number(limit))
+      page: pageNum, 
+      limit: limitNum,
+      totalPages: Math.ceil(total / limitNum)
     }
   });
 });
@@ -169,13 +215,38 @@ exports.getUserTransactions = asyncHandler(async (req, res) => {
 // GET /api/admin/stores/pending
 exports.listPendingStores = asyncHandler(async (req, res) => {
   const { page = 1, limit = 20, city, category, owner } = req.query;
-  const skip = (Number(page) - 1) * Number(limit);
+  
+  // Validate and sanitize pagination
+  const { page: pageNum, limit: limitNum, skip } = sanitizePagination(page, limit, 100);
+  
   const filter = { status: { $in: ['submitted', 'pendingApproval'] } };
-  if (category) filter.category = category;
-  if (city) filter.address = new RegExp(city, 'i');
-  if (owner) filter.ownerId = owner;
+  
+  // Validate category if provided
+  if (category) {
+    const sanitizedCategory = sanitizeString(category, 50);
+    if (sanitizedCategory) filter.category = sanitizedCategory;
+  }
+  
+  // Sanitize and escape regex for city search
+  if (city) {
+    const sanitizedCity = sanitizeSearchQuery(city, 100);
+    if (sanitizedCity) filter.address = new RegExp(sanitizedCity, 'i');
+  }
+  
+  // Validate ObjectId for owner
+  if (owner) {
+    if (isValidObjectId(owner)) {
+      filter.ownerId = owner;
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid owner ID'
+      });
+    }
+  }
+  
   const [items, total] = await Promise.all([
-    Store.find(filter).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)).populate('ownerId', 'name email phone'),
+    Store.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limitNum).populate('ownerId', 'name email phone'),
     Store.countDocuments(filter)
   ]);
   res.json({ 
@@ -197,17 +268,24 @@ exports.listPendingStores = asyncHandler(async (req, res) => {
     })), 
     total, 
     pagination: {
-      page: Number(page), 
-      limit: Number(limit),
-      totalPages: Math.ceil(total / Number(limit))
+      page: pageNum, 
+      limit: limitNum,
+      totalPages: Math.ceil(total / limitNum)
     }
   });
 });
 
 // POST /api/admin/stores/:id/approve
 exports.approveStore = asyncHandler(async (req, res, next) => {
+  const storeId = req.params.id;
+  
+  // Validate ObjectId
+  if (!isValidObjectId(storeId)) {
+    return next(new AppError('Invalid store ID', 400));
+  }
+  
   const store = await Store.findByIdAndUpdate(
-    req.params.id,
+    storeId,
     { status: 'active', isVerified: true, available: true, rejectionReason: undefined },
     { new: true }
   ).populate('ownerId', 'name email phone');
@@ -230,10 +308,20 @@ exports.approveStore = asyncHandler(async (req, res, next) => {
 
 // POST /api/admin/stores/:id/reject
 exports.rejectStore = asyncHandler(async (req, res, next) => {
+  const storeId = req.params.id;
   const { reason } = req.body;
+  
+  // Validate ObjectId
+  if (!isValidObjectId(storeId)) {
+    return next(new AppError('Invalid store ID', 400));
+  }
+  
+  // Sanitize rejection reason
+  const sanitizedReason = reason ? sanitizeString(reason, 500) : 'Not specified';
+  
   const store = await Store.findByIdAndUpdate(
-    req.params.id,
-    { status: 'rejected', isVerified: false, available: false, rejectionReason: reason || 'Not specified' },
+    storeId,
+    { status: 'rejected', isVerified: false, available: false, rejectionReason: sanitizedReason },
     { new: true }
   ).populate('ownerId', 'name email phone');
   if (!store) return next(new AppError('Store not found', 404));
@@ -256,8 +344,15 @@ exports.rejectStore = asyncHandler(async (req, res, next) => {
 
 // PATCH /api/admin/stores/:id/suspend
 exports.suspendStore = asyncHandler(async (req, res, next) => {
+  const storeId = req.params.id;
+  
+  // Validate ObjectId
+  if (!isValidObjectId(storeId)) {
+    return next(new AppError('Invalid store ID', 400));
+  }
+  
   const store = await Store.findByIdAndUpdate(
-    req.params.id,
+    storeId,
     { status: 'suspended', available: false },
     { new: true }
   ).populate('ownerId', 'name email phone');

@@ -20,13 +20,15 @@ const storeSchema = new mongoose.Schema({
   location: {
     type: {
       type: String,
-      enum: ['Point'],
-      default: 'Point'
+      enum: ['Point']
+      // No default - only set if coordinates are provided
     },
     coordinates: {
       type: [Number], // [longitude, latitude]
+      // No default - only set if provided
       index: '2dsphere'
     }
+    // Location is optional - only set if both type and coordinates are provided
   },
   
   phone: { 

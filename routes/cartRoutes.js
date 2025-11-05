@@ -30,7 +30,7 @@ const { protect, restrictTo } = require('../middleware/authMiddleware');
  *       200:
  *         description: Item added
  */
-router.post('/add', cartController.addToCart);
+router.post('/add', protect, restrictTo('customer'), cartController.addToCart);
 /**
  * @openapi
  * /api/cart:
@@ -43,7 +43,7 @@ router.post('/add', cartController.addToCart);
  *       200:
  *         description: Cart
  */
-router.get('/', cartController.getCart);
+router.get('/', protect, restrictTo('customer'), cartController.getCart);
 /**
  * @openapi
  * /api/cart/update:
@@ -68,7 +68,7 @@ router.get('/', cartController.getCart);
  *       200:
  *         description: Updated
  */
-router.patch('/update', cartController.updateCartQuantity);
+router.patch('/update', protect, restrictTo('customer'), cartController.updateCartQuantity);
 /**
  * @openapi
  * /api/cart/update/{itemId}:
@@ -97,7 +97,7 @@ router.patch('/update', cartController.updateCartQuantity);
  *       200:
  *         description: Updated
  */
-router.patch('/update/:itemId', cartController.updateCartQuantityById);
+router.patch('/update/:itemId', protect, restrictTo('customer'), cartController.updateCartQuantityById);
 /**
  * @openapi
  * /api/cart/remove:
@@ -120,7 +120,7 @@ router.patch('/update/:itemId', cartController.updateCartQuantityById);
  *       200:
  *         description: Removed
  */
-router.delete('/remove', cartController.removeFromCart);
+router.delete('/remove', protect, restrictTo('customer'), cartController.removeFromCart);
 /**
  * @openapi
  * /api/cart/remove/{itemId}:
@@ -139,7 +139,7 @@ router.delete('/remove', cartController.removeFromCart);
  *       200:
  *         description: Removed
  */
-router.delete('/remove/:itemId', cartController.removeFromCartById);
+router.delete('/remove/:itemId', protect, restrictTo('customer'), cartController.removeFromCartById);
 /**
  * @openapi
  * /api/cart/clear:

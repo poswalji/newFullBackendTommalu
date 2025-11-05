@@ -139,6 +139,26 @@ router.route('/stores/:id')
     .patch(storeController.updateStore)
     .delete(storeController.deleteStore);
 
+// Submit store for approval
+/**
+ * @openapi
+ * /api/store-owner/stores/{id}/submit:
+ *   post:
+ *     tags: [StoreOwner]
+ *     summary: Submit store for approval (draft → pendingApproval)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Store submitted for approval
+ */
+router.post('/stores/:id/submit', storeController.submitStoreForApproval);
+
 // Toggle store status
 /**
  * @openapi
@@ -247,6 +267,26 @@ router.post('/stores/:storeId/menu', uploadSingle, menuItemController.addMenuIte
  *         description: Menu item updated
  */
 router.patch('/menu/:menuItemId', uploadSingle, menuItemController.updateMenuItem);
+
+// Get menu item by ID
+/**
+ * @openapi
+ * /api/store-owner/menu/{menuItemId}:
+ *   get:
+ *     tags: [StoreOwner]
+ *     summary: Get menu item by ID
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: menuItemId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Menu item details
+ */
+router.get('/menu/:menuItemId', menuItemController.getMenuItemById);
 
 // Delete menu item
 /**

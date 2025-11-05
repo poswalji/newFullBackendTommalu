@@ -123,6 +123,27 @@ exports.addToCart = asyncHandler(async (req, res, next) => {
   const menuItem = await MenuItem.findById(menuItemId).populate('storeId', 'storeName');
   if (!menuItem) return next(new AppError('Menu item not found', 404));
   if (menuItem.isAvailable === false) return next(new AppError('Item unavailable', 400));
+  if (!menuItem.storeId) return next(new AppError('Menu item store is missing', 400));
+
+  // Get store name - handle both populated and non-populated cases
+  let storeName = menuItem.storeId?.name || '';
+  let storeId = menuItem.storeId?._id || menuItem.storeId;
+  
+  // If storeId is not populated (just an ObjectId), fetch the store
+  if (!storeName && menuItem.storeId) {
+    const store = await Store.findById(menuItem.storeId);
+    if (!store) return next(new AppError('Store not found', 404));
+    storeName = store.name;
+    storeId = store._id;
+    // Update menuItem.storeId for consistency
+    menuItem.storeId = { _id: store._id, name: store.name };
+  }
+
+  // Default image if missing (prefer first images[] entry, then legacy image)
+  const candidateImage = (Array.isArray(menuItem.images) && menuItem.images[0]) || menuItem.image || '';
+  const defaultImage = candidateImage && String(candidateImage).trim() !== ''
+    ? candidateImage
+    : '/placeholder-image.jpg';
 
   let cart;
   if (req.user?._id) {
@@ -133,15 +154,19 @@ exports.addToCart = asyncHandler(async (req, res, next) => {
       cart = new Cart({
         userId,
         storeId: menuItem.storeId._id,
-        storeName: menuItem.storeId.storeName,
+        storeName: menuItem.storeId.name,
         items: [],
         totalAmount: 0,
         totalItems: 0,
       });
     }
 
+    // Always ensure cart is aligned to current store before proceeding
+    cart.storeName = storeName;
+    cart.storeId = storeId;
+
     // Prevent mixing stores
-    if (cart.storeId && cart.storeId.toString() !== menuItem.storeId._id.toString()) {
+    if (cart.storeId && cart.storeId.toString() !== storeId.toString()) {
       return next(new AppError('You can only order from one store at a time. Clear cart to change store.', 400));
     }
 
@@ -150,6 +175,10 @@ exports.addToCart = asyncHandler(async (req, res, next) => {
     if (existingItem) {
       existingItem.quantity += Number(quantity);
       existingItem.price = menuItem.price;
+      // Update image if it was empty
+      if (!existingItem.image || existingItem.image.trim() === '') {
+        existingItem.image = defaultImage;
+      }
     } else {
       cart.items.push({
         menuItemId,
@@ -157,8 +186,8 @@ exports.addToCart = asyncHandler(async (req, res, next) => {
         price: menuItem.price,
         quantity: Number(quantity),
         image: menuItem.image || '',
-        storeId: menuItem.storeId._id,
-        storeName: menuItem.storeId.storeName
+         storeId: menuItem.storeId._id,
+    storeName: menuItem.storeId.name
       });
     }
 
@@ -166,6 +195,11 @@ exports.addToCart = asyncHandler(async (req, res, next) => {
     cart.totalItems = cart.items.reduce((sum, i) => sum + i.quantity, 0);
     cart.totalAmount = cart.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
 
+    // Final guard: ensure storeName exists when saving with items
+    if ((cart.items?.length || 0) > 0 && !cart.storeName) {
+      cart.storeName = storeName;
+      cart.storeId = storeId;
+    }
     await cart.save();
     await cart.populate('items.menuItemId', 'name price image storeId');
 
@@ -173,10 +207,10 @@ exports.addToCart = asyncHandler(async (req, res, next) => {
     // ✅ Guest user
     const sessionId = getOrCreateSessionId(req, res);
 
-    cart = guestCarts.get(sessionId) || { items: [], storeId: menuItem.storeId._id, storeName: menuItem.storeId.storeName };
-
+    cart = guestCarts.get(sessionId) || { items: [], storeId: menuItem.storeId._id, storeName: menuItem.storeId.name };
+    
     // Prevent mixing stores
-    if (cart.storeId && cart.storeId.toString() !== menuItem.storeId._id.toString()) {
+    if (cart.storeId && cart.storeId.toString() !== storeId.toString()) {
       return next(new AppError('You can only order from one store at a time. Clear cart to change store.', 400));
     }
 
@@ -184,6 +218,10 @@ exports.addToCart = asyncHandler(async (req, res, next) => {
     if (existingItem) {
       existingItem.quantity += Number(quantity);
       existingItem.price = menuItem.price;
+      // Update image if it was empty
+      if (!existingItem.image || existingItem.image.trim() === '') {
+        existingItem.image = defaultImage;
+      }
     } else {
       cart.items.push({
         menuItemId,
@@ -192,7 +230,7 @@ exports.addToCart = asyncHandler(async (req, res, next) => {
         quantity: Number(quantity),
         image: menuItem.image || '',
         storeId: menuItem.storeId._id,
-        storeName: menuItem.storeId.storeName
+    storeName: menuItem.storeId.name
       });
     }
 

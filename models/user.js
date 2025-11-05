@@ -19,6 +19,7 @@ const userSchema = new mongoose.Schema({
   },
   phone: {
     type: String,
+    unique:false,
     validate: {
       validator: function(v) {
         // Basic phone validation - adjust regex as needed
@@ -72,7 +73,21 @@ const userSchema = new mongoose.Schema({
       country: { type: String, default: "India" },
       isDefault: { type: Boolean, default: false }
     }
-  ]
+  ],
+
+  // ✅ Email verification fields
+  emailVerified: {
+    type: Boolean,
+    default: false
+  },
+  verificationCode: {
+    type: String,
+    select: false
+  },
+  verificationCodeExpires: {
+    type: Date,
+    select: false
+  }
    
 
 },

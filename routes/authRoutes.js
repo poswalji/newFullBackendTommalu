@@ -82,6 +82,9 @@ router.post('/login', authController.loginUser); //  Add login route
  */
 router.post('/logout', authController.logoutUser);
 
+// Refresh access token
+router.post('/refresh', authController.refreshToken);
+
 /**
  * @openapi
  * /api/auth/google:
@@ -181,4 +184,54 @@ router.put('/change-password', protect, authController.changePassword);
  *         description: Account deleted
  */
 router.delete('/delete', protect, authController.deleteAccount);
+
+/**
+ * @openapi
+ * /api/auth/verify-email:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Verify email with code
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [code, verificationToken]
+ *             properties:
+ *               code:
+ *                 type: string
+ *                 description: 6-digit verification code
+ *               verificationToken:
+ *                 type: string
+ *                 description: JWT token received after registration
+ *     responses:
+ *       200:
+ *         description: Email verified successfully
+ */
+router.post('/verify-email', authController.verifyEmail);
+
+/**
+ * @openapi
+ * /api/auth/resend-verification:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Resend verification code
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [verificationToken]
+ *             properties:
+ *               verificationToken:
+ *                 type: string
+ *                 description: JWT token received after registration
+ *     responses:
+ *       200:
+ *         description: Verification code resent
+ */
+router.post('/resend-verification', authController.resendVerificationCode);
+
 module.exports = router;

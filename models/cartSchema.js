@@ -11,7 +11,10 @@ const cartSchema = new mongoose.Schema({
   },
   storeName: {
     type: String,
-    required: true
+    required: function () {
+      // Require storeName only when there are items in the cart
+      return Array.isArray(this.items) && this.items.length > 0;
+    }
   },
   items: [{
     menuItemId: {
