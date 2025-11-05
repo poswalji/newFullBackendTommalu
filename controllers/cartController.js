@@ -102,9 +102,8 @@ const enrichGuestCart = async (sessionCart) => {
       price: mi ? mi.price : it.price,
       itemName: mi ? mi.name : it.itemName,
       image: mi?.image || null,
-
-       storeId: mi?.storeId || sessionCart.storeId,       // ✅ add storeId
-    storeName: mi?.storeId?.name || sessionCart.storeName,
+      storeId: mi?.storeId || sessionCart.storeId,
+      storeName: mi?.storeId?.storeName || sessionCart.storeName,
       description: mi?.description,
       category: mi?.category,
       isAvailable: mi?.isAvailable ?? true,
@@ -121,7 +120,7 @@ exports.addToCart = asyncHandler(async (req, res, next) => {
   if (!menuItemId) return next(new AppError('menuItemId is required', 400));
 
   // Fetch menu item from DB to get price, image, etc.
-  const menuItem = await MenuItem.findById(menuItemId).populate('storeId', 'name');
+  const menuItem = await MenuItem.findById(menuItemId).populate('storeId', 'storeName');
   if (!menuItem) return next(new AppError('Menu item not found', 404));
   if (menuItem.isAvailable === false) return next(new AppError('Item unavailable', 400));
 
@@ -134,7 +133,7 @@ exports.addToCart = asyncHandler(async (req, res, next) => {
       cart = new Cart({
         userId,
         storeId: menuItem.storeId._id,
-        storeName: menuItem.storeId.name,
+        storeName: menuItem.storeId.storeName,
         items: [],
         totalAmount: 0,
         totalItems: 0,
@@ -158,8 +157,8 @@ exports.addToCart = asyncHandler(async (req, res, next) => {
         price: menuItem.price,
         quantity: Number(quantity),
         image: menuItem.image || '',
-         storeId: menuItem.storeId._id,
-    storeName: menuItem.storeId.name
+        storeId: menuItem.storeId._id,
+        storeName: menuItem.storeId.storeName
       });
     }
 
@@ -174,8 +173,8 @@ exports.addToCart = asyncHandler(async (req, res, next) => {
     // ✅ Guest user
     const sessionId = getOrCreateSessionId(req, res);
 
-    cart = guestCarts.get(sessionId) || { items: [], storeId: menuItem.storeId._id, storeName: menuItem.storeId.name };
-    
+    cart = guestCarts.get(sessionId) || { items: [], storeId: menuItem.storeId._id, storeName: menuItem.storeId.storeName };
+
     // Prevent mixing stores
     if (cart.storeId && cart.storeId.toString() !== menuItem.storeId._id.toString()) {
       return next(new AppError('You can only order from one store at a time. Clear cart to change store.', 400));
@@ -193,7 +192,7 @@ exports.addToCart = asyncHandler(async (req, res, next) => {
         quantity: Number(quantity),
         image: menuItem.image || '',
         storeId: menuItem.storeId._id,
-    storeName: menuItem.storeId.name
+        storeName: menuItem.storeId.storeName
       });
     }
 
