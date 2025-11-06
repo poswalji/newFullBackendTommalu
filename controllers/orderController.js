@@ -352,22 +352,60 @@ exports.updateOrderStatus = asyncHandler(async (req, res, next) => {
         console.error('Error notifying customer:', err);
     });
     
-    // Notify admin about status update
-    notificationService.createNotification({
-        userId: updatedOrder.userId?._id || updatedOrder.userId,
-        title: `Order ${status}`,
-        message: `Order #${updatedOrder._id.toString().slice(-6)} status updated to ${status}`,
-        type: 'order_status_updated',
-        relatedId: updatedOrder._id,
-        relatedModel: 'Order',
-        metadata: {
-            orderId: updatedOrder._id,
-            status,
-            storeId: updatedOrder.storeId?._id || updatedOrder.storeId
+    // Notify store owner about status update
+    try {
+        const store = await Store.findById(updatedOrder.storeId?._id || updatedOrder.storeId).populate('ownerId');
+        if (store && store.ownerId) {
+            notificationService.createNotification({
+                userId: store.ownerId._id || store.ownerId,
+                title: 'Order Status Updated',
+                message: `Order #${updatedOrder._id.toString().slice(-6)} status updated to ${status}`,
+                type: 'order_status_updated',
+                relatedId: updatedOrder._id,
+                relatedModel: 'Order',
+                metadata: {
+                    orderId: updatedOrder._id,
+                    status,
+                    storeId: updatedOrder.storeId?._id || updatedOrder.storeId
+                }
+            }).catch(err => {
+                console.error('Error creating store owner notification:', err);
+            });
         }
-    }).catch(err => {
+    } catch (err) {
+        console.error('Error notifying store owner:', err);
+    }
+    
+    // Notify admin about status update (for all statuses)
+    try {
+        const admins = await User.find({ role: 'admin' }).select('_id');
+        const adminNotificationPromises = admins.map(admin =>
+            notificationService.createNotification({
+                userId: admin._id,
+                title: 'Order Status Updated',
+                message: `Order #${updatedOrder._id.toString().slice(-6)} status updated to ${status}`,
+                type: 'order_status_updated',
+                relatedId: updatedOrder._id,
+                relatedModel: 'Order',
+                metadata: {
+                    orderId: updatedOrder._id,
+                    status,
+                    storeId: updatedOrder.storeId?._id || updatedOrder.storeId,
+                    customerName: updatedOrder.userId?.name
+                }
+            })
+        );
+        await Promise.all(adminNotificationPromises);
+    } catch (err) {
         console.error('Error creating admin notification:', err);
-    });
+    }
+
+    // Special handling: Notify admin as delivery boy when order is OutForDelivery
+    if (status === 'OutForDelivery') {
+        notificationService.notifyAdminDeliveryAssignment(updatedOrder).catch(err => {
+            console.error('Error notifying admin about delivery assignment:', err);
+        });
+    }
     
     res.status(200).json({
         success: true,

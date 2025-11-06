@@ -2,8 +2,10 @@
 const Notification = require('../models/notificationSchema');
 const User = require('../models/user');
 const Store = require('../models/store');
+const Order = require('../models/orderSchema');
 const { getIO } = require('../utils/socket');
 const { info } = require('../utils/logger');
+const emailService = require('../utils/emailService');
 
 /**
  * Create a notification and emit via Socket.io
@@ -55,6 +57,59 @@ exports.createNotification = async ({
       type
     });
 
+    // Send email notification for order-related notifications (tracking)
+    if (type === 'order_created' || type === 'order_status_updated') {
+      try {
+        const user = await User.findById(userId).select('email name role');
+        if (user && user.email) {
+          // Get order details for email
+          if (relatedId && relatedModel === 'Order') {
+            const order = await Order.findById(relatedId)
+              .populate('userId', 'name email phone')
+              .populate('storeId', 'storeName');
+            
+            if (order) {
+              const orderNumber = order._id.toString().slice(-6);
+              const customerName = order.userId?.name || order.userId?.name || 'Customer';
+              
+              if (type === 'order_created') {
+                // Send new order email to customer
+                if (user.role === 'customer') {
+                  emailService.sendOrderTrackingEmail(user.email, {
+                    orderId: order._id,
+                    status: order.status || 'Pending',
+                    orderNumber,
+                    customerName,
+                    finalPrice: order.finalPrice,
+                    deliveryAddress: order.deliveryAddress
+                  }).catch(err => {
+                    console.error('Error sending order tracking email:', err);
+                  });
+                }
+              } else if (type === 'order_status_updated') {
+                // Send order status update email to customer
+                if (user.role === 'customer') {
+                  emailService.sendOrderTrackingEmail(user.email, {
+                    orderId: order._id,
+                    status: metadata?.status || order.status,
+                    orderNumber,
+                    customerName,
+                    finalPrice: order.finalPrice,
+                    deliveryAddress: order.deliveryAddress
+                  }).catch(err => {
+                    console.error('Error sending order tracking email:', err);
+                  });
+                }
+              }
+            }
+          }
+        }
+      } catch (emailError) {
+        // Don't fail notification creation if email fails
+        console.error('Error sending email notification:', emailError);
+      }
+    }
+
     return notification;
   } catch (error) {
     console.error('Error creating notification:', error);
@@ -89,6 +144,27 @@ exports.notifyStoreOwnerNewOrder = async (order) => {
         storeId: order.storeId
       }
     });
+
+    // Send email notification to store owner
+    try {
+      const storeOwner = await User.findById(storeOwnerId).select('email name');
+      if (storeOwner && storeOwner.email) {
+        const orderPopulated = await Order.findById(order._id)
+          .populate('userId', 'name email');
+        
+        emailService.sendNewOrderEmailToStoreOwner(storeOwner.email, {
+          orderId: order._id,
+          orderNumber: order._id.toString().slice(-6),
+          customerName: orderPopulated?.userId?.name || 'Customer',
+          finalPrice: order.finalPrice,
+          items: order.items
+        }).catch(err => {
+          console.error('Error sending new order email to store owner:', err);
+        });
+      }
+    } catch (emailError) {
+      console.error('Error sending email to store owner:', emailError);
+    }
 
     // Emit specific event for store owners
     try {
@@ -141,13 +217,50 @@ exports.notifyCustomerOrderUpdate = async (order, status) => {
     // Emit specific event for customer
     try {
       const io = getIO();
+      const orderPopulated = await Order.findById(order._id)
+        .populate('userId', 'name email')
+        .populate('storeId', 'storeName');
+      
       io.to(`user:${order.userId}`).emit('order_status_update', {
         orderId: order._id,
         status,
-        message
+        message,
+        customerName: orderPopulated?.userId?.name || order.userId?.name || 'Customer'
+      });
+
+      // Also emit to admin room for order status updates
+      io.to('admin').emit('order_status_update', {
+        orderId: order._id,
+        status,
+        message,
+        customerName: orderPopulated?.userId?.name || 'Customer',
+        deliveryAddress: orderPopulated?.deliveryAddress
       });
     } catch (socketError) {
       console.warn('Socket.io emit failed for customer:', socketError.message);
+    }
+
+    // Send email notification to customer for order tracking
+    try {
+      const customer = await User.findById(order.userId).select('email name');
+      if (customer && customer.email) {
+        const orderPopulated = await Order.findById(order._id)
+          .populate('userId', 'name email')
+          .populate('storeId', 'storeName');
+        
+        emailService.sendOrderTrackingEmail(customer.email, {
+          orderId: order._id,
+          status,
+          orderNumber: order._id.toString().slice(-6),
+          customerName: orderPopulated?.userId?.name || customer.name || 'Customer',
+          finalPrice: order.finalPrice,
+          deliveryAddress: order.deliveryAddress
+        }).catch(err => {
+          console.error('Error sending order tracking email to customer:', err);
+        });
+      }
+    } catch (emailError) {
+      console.error('Error sending email to customer:', emailError);
     }
   } catch (error) {
     console.error('Error notifying customer:', error);
@@ -160,7 +273,7 @@ exports.notifyCustomerOrderUpdate = async (order, status) => {
 exports.notifyAdminNewOrder = async (order) => {
   try {
     // Get all admin users
-    const admins = await User.find({ role: 'admin' }).select('_id');
+    const admins = await User.find({ role: 'admin' }).select('_id email name');
 
     // Create notifications for all admins
     const notificationPromises = admins.map(admin =>
@@ -198,6 +311,90 @@ exports.notifyAdminNewOrder = async (order) => {
     }
   } catch (error) {
     console.error('Error notifying admin:', error);
+  }
+};
+
+/**
+ * Notify admin about delivery assignment (admin as delivery boy)
+ */
+exports.notifyAdminDeliveryAssignment = async (order) => {
+  try {
+    // Get all admin users
+    const admins = await User.find({ role: 'admin' }).select('_id email name');
+
+    // Populate order with customer and store details
+    const orderPopulated = await Order.findById(order._id || order)
+      .populate('userId', 'name email phone')
+      .populate('storeId', 'storeName');
+
+    if (!orderPopulated) {
+      console.error('Order not found for delivery assignment notification');
+      return;
+    }
+
+    const orderNumber = orderPopulated._id.toString().slice(-6);
+    const customerName = orderPopulated.userId?.name || 'Customer';
+    const customerPhone = orderPopulated.userId?.phone || null;
+
+    // Create notifications for all admins
+    const notificationPromises = admins.map(admin =>
+      this.createNotification({
+        userId: admin._id,
+        title: '🚚 New Delivery Assignment',
+        message: `Order #${orderNumber} is ready for delivery. Customer: ${customerName}`,
+        type: 'delivery_assigned',
+        relatedId: orderPopulated._id,
+        relatedModel: 'Order',
+        metadata: {
+          orderId: orderPopulated._id,
+          customerName,
+          customerPhone,
+          deliveryAddress: orderPopulated.deliveryAddress,
+          finalPrice: orderPopulated.finalPrice
+        }
+      })
+    );
+
+    await Promise.all(notificationPromises);
+
+    // Emit delivery_assigned event to all admins
+    try {
+      const io = getIO();
+      admins.forEach(admin => {
+        io.to(`user:${admin._id}`).emit('delivery_assigned', {
+          orderId: orderPopulated._id,
+          orderNumber,
+          customerName,
+          customerPhone,
+          deliveryAddress: orderPopulated.deliveryAddress,
+          finalPrice: orderPopulated.finalPrice,
+          storeName: orderPopulated.storeId?.storeName || 'Store'
+        });
+      });
+    } catch (socketError) {
+      console.warn('Socket.io emit failed for delivery assignment:', socketError.message);
+    }
+
+    // Send email notifications to all admins
+    const emailPromises = admins.map(admin => {
+      if (admin.email) {
+        return emailService.sendDeliveryAssignmentEmail(admin.email, {
+          orderId: orderPopulated._id,
+          orderNumber,
+          customerName,
+          customerPhone,
+          finalPrice: orderPopulated.finalPrice,
+          deliveryAddress: orderPopulated.deliveryAddress
+        }).catch(err => {
+          console.error(`Error sending delivery assignment email to admin ${admin._id}:`, err);
+        });
+      }
+      return Promise.resolve();
+    });
+
+    await Promise.all(emailPromises);
+  } catch (error) {
+    console.error('Error notifying admin about delivery assignment:', error);
   }
 };
 
