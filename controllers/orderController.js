@@ -90,6 +90,7 @@ const Menu = require("../models/menuItems");
 const Store = require("../models/store");
 const Cart = require("../models/cartSchema");
 const notificationService = require('../services/notificationService');
+const { calculateFinalAmount } = require('./cartController');
 
 // ✅ CREATE ORDER - Fixed to use authenticated user with fraud detection
 exports.createOrder = asyncHandler(async(req, res, next) => {
@@ -245,6 +246,7 @@ exports.createOrder = asyncHandler(async(req, res, next) => {
             items: newOrder.items,
             discount: newOrder.discount,
             promoCode: newOrder.promoCode,
+            deliveryCharge: newOrder.deliveryCharge,
             finalPrice: newOrder.finalPrice,
             deliveryAddress: newOrder.deliveryAddress,
             status: newOrder.status,
@@ -281,6 +283,7 @@ exports.getCustomerOrders = asyncHandler(async(req, res, next) => {
             items: order.items,
             discount: order.discount,
             promoCode: order.promoCode,
+            deliveryCharge: order.deliveryCharge,
             finalPrice: order.finalPrice,
             deliveryAddress: order.deliveryAddress,
             status: order.status,
@@ -417,6 +420,7 @@ exports.updateOrderStatus = asyncHandler(async (req, res, next) => {
             items: updatedOrder.items || [],
             discount: updatedOrder.discount,
             promoCode: updatedOrder.promoCode,
+            deliveryCharge: updatedOrder.deliveryCharge,
             finalPrice: updatedOrder.finalPrice,
             deliveryAddress: updatedOrder.deliveryAddress,
             status: updatedOrder.status,
@@ -453,6 +457,7 @@ exports.getStoreOrders = asyncHandler(async (req, res, next) => {
             items: order.items,
             discount: order.discount,
             promoCode: order.promoCode,
+            deliveryCharge: order.deliveryCharge,
             finalPrice: order.finalPrice,
             deliveryAddress: order.deliveryAddress,
             status: order.status,
@@ -496,14 +501,18 @@ exports.createOrderFromCart = asyncHandler(async (req, res, next) => {
         itemPrice: item.menuItemId?.price || item.price
     }));
 
-    // Use cart finalAmount if available, otherwise calculate
-    const finalPrice = cart.finalAmount || cart.totalAmount;
+    // ✅ FIXED: Recalculate delivery charge and final amount to ensure delivery fees are included
+    const amounts = await calculateFinalAmount(cart);
+    const finalPrice = amounts.finalAmount; // This includes delivery charges
 
-    // Create order
+    // Create order with delivery charge stored separately for transparency
     const newOrder = await Order.create({
         storeId: cart.storeId,
         userId,
         items,
+        deliveryCharge: amounts.deliveryCharge, // Store delivery charge separately
+        discount: cart.discount?.discountAmount || 0,
+        promoCode: cart.discount?.code || null,
         finalPrice,
         deliveryAddress,
         paymentMethod,
@@ -561,6 +570,7 @@ exports.createOrderFromCart = asyncHandler(async (req, res, next) => {
             items: newOrder.items,
             discount: newOrder.discount,
             promoCode: newOrder.promoCode,
+            deliveryCharge: newOrder.deliveryCharge,
             finalPrice: newOrder.finalPrice,
             deliveryAddress: newOrder.deliveryAddress,
             status: newOrder.status,
@@ -644,6 +654,7 @@ exports.cancelOrder = asyncHandler(async (req, res, next) => {
             items: order.items,
             discount: order.discount,
             promoCode: order.promoCode,
+            deliveryCharge: order.deliveryCharge,
             finalPrice: order.finalPrice,
             deliveryAddress: order.deliveryAddress,
             status: order.status,
@@ -727,6 +738,7 @@ exports.getOrderById = asyncHandler(async (req, res, next) => {
             items: order.items,
             discount: order.discount,
             promoCode: order.promoCode,
+            deliveryCharge: order.deliveryCharge,
             finalPrice: order.finalPrice,
             deliveryAddress: order.deliveryAddress,
             status: order.status,
@@ -764,7 +776,7 @@ exports.getOrderPublic = asyncHandler(async (req, res, next) => {
             status: order.status,
             finalPrice: order.finalPrice,
             storeName: order.storeId?.storeName,
-            itemsCount: order.items?.length || 0,
+            items: order.items,
             createdAt: order.createdAt,
             updatedAt: order.updatedAt
         }
@@ -804,6 +816,7 @@ exports.updateOrderStatusAdmin = asyncHandler(async (req, res, next) => {
             items: updated.items,
             discount: updated.discount,
             promoCode: updated.promoCode,
+            deliveryCharge: updated.deliveryCharge,
             finalPrice: updated.finalPrice,
             deliveryAddress: updated.deliveryAddress,
             status: updated.status,

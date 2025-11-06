@@ -76,6 +76,9 @@ const calculateFinalAmount = async (cart) => {
    return { itemsTotal, deliveryCharge, finalAmount };
 };
 
+// ✅ Export calculateFinalAmount for use in orderController
+exports.calculateFinalAmount = calculateFinalAmount;
+
 // Cleanup invalid cart items (for expired/unavailable)
 const cleanupInvalidCartItems = async (cartLike) => {
    const itemsRef =

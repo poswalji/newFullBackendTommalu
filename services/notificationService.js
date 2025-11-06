@@ -37,7 +37,9 @@ exports.createNotification = async ({
     // Emit real-time notification via Socket.io
     try {
       const io = getIO();
-      io.to(`user:${userId}`).emit('new_notification', {
+      // ✅ FIXED: Ensure userId is converted to string for socket room matching
+      const userRoomId = userId?._id?.toString() || userId?.toString() || userId;
+      io.to(`user:${userRoomId}`).emit('new_notification', {
         id: notification._id,
         title: notification.title,
         message: notification.message,
@@ -129,10 +131,12 @@ exports.notifyStoreOwnerNewOrder = async (order) => {
     }
 
     const storeOwnerId = store.ownerId._id || store.ownerId;
+    // ✅ FIXED: Ensure storeOwnerId is converted to string
+    const storeOwnerIdString = storeOwnerId?._id?.toString() || storeOwnerId?.toString() || storeOwnerId;
 
     // Create notification
     await this.createNotification({
-      userId: storeOwnerId,
+      userId: storeOwnerIdString,
       title: 'New Order Received',
       message: `You have received a new order #${order._id.toString().slice(-6)} for ₹${order.finalPrice}`,
       type: 'order_created',
@@ -147,7 +151,7 @@ exports.notifyStoreOwnerNewOrder = async (order) => {
 
     // Send email notification to store owner
     try {
-      const storeOwner = await User.findById(storeOwnerId).select('email name');
+      const storeOwner = await User.findById(storeOwnerIdString).select('email name');
       if (storeOwner && storeOwner.email) {
         const orderPopulated = await Order.findById(order._id)
           .populate('userId', 'name email');
@@ -169,9 +173,10 @@ exports.notifyStoreOwnerNewOrder = async (order) => {
     // Emit specific event for store owners
     try {
       const io = getIO();
-      io.to(`user:${storeOwnerId}`).emit('new_order', {
-        orderId: order._id,
-        storeId: order.storeId,
+      // ✅ FIXED: Ensure storeOwnerId is converted to string for socket room matching
+      io.to(`user:${storeOwnerIdString}`).emit('new_order', {
+        orderId: order._id?.toString() || order._id,
+        storeId: order.storeId?.toString() || order.storeId,
         finalPrice: order.finalPrice,
         status: order.status,
         createdAt: order.createdAt
@@ -200,8 +205,11 @@ exports.notifyCustomerOrderUpdate = async (order, status) => {
     const title = statusMessages[status] || 'Order Status Updated';
     const message = `Order #${order._id.toString().slice(-6)} status updated to ${status}`;
 
+    // ✅ FIXED: Ensure userId is converted to string
+    const customerUserId = order.userId?._id?.toString() || order.userId?.toString() || order.userId;
+
     await this.createNotification({
-      userId: order.userId,
+      userId: customerUserId,
       title,
       message,
       type: 'order_status_updated',
@@ -221,8 +229,9 @@ exports.notifyCustomerOrderUpdate = async (order, status) => {
         .populate('userId', 'name email')
         .populate('storeId', 'storeName');
       
-      io.to(`user:${order.userId}`).emit('order_status_update', {
-        orderId: order._id,
+      // ✅ FIXED: Reuse customerUserId (already defined above) for socket room matching
+      io.to(`user:${customerUserId}`).emit('order_status_update', {
+        orderId: order._id?.toString() || order._id,
         status,
         message,
         customerName: orderPopulated?.userId?.name || order.userId?.name || 'Customer'
@@ -361,8 +370,10 @@ exports.notifyAdminDeliveryAssignment = async (order) => {
     try {
       const io = getIO();
       admins.forEach(admin => {
-        io.to(`user:${admin._id}`).emit('delivery_assigned', {
-          orderId: orderPopulated._id,
+        // ✅ FIXED: Ensure admin._id is converted to string for socket room matching
+        const adminIdString = admin._id?.toString() || admin._id;
+        io.to(`user:${adminIdString}`).emit('delivery_assigned', {
+          orderId: orderPopulated._id?.toString() || orderPopulated._id,
           orderNumber,
           customerName,
           customerPhone,

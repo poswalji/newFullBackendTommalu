@@ -75,6 +75,7 @@ const OrderSchema = new mongoose.Schema({
 
   discount: { type: Number, default: 0 },
   promoCode: { type: String },
+  deliveryCharge: { type: Number, default: 0 },
   finalPrice: { type: Number, required: true },
 
   status: {
@@ -128,13 +129,15 @@ const OrderSchema = new mongoose.Schema({
 
 // Pre-save hook to calculate finalPrice if not set
 OrderSchema.pre('save', function(next) {
-  // If finalPrice is not set, calculate it from items and discount
-  if (this.isModified('items') || this.isModified('discount') || this.isNew) {
+  // If finalPrice is not set, calculate it from items, discount, and delivery charge
+  if (this.isModified('items') || this.isModified('discount') || this.isModified('deliveryCharge') || this.isNew) {
     let subtotal = 0;
     this.items.forEach(item => {
       subtotal += item.itemPrice * item.quantity;
     });
-    this.finalPrice = subtotal - this.discount;
+    // Include delivery charge in final price calculation
+    const deliveryCharge = this.deliveryCharge || 0;
+    this.finalPrice = subtotal + deliveryCharge - (this.discount || 0);
   }
   next();
 });
