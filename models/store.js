@@ -90,9 +90,10 @@ const storeSchema = new mongoose.Schema({
     default: 49,
     min: 0
   },
+  // ✅ Delivery charge set by admin (default 30, can be edited by admin only)
   deliveryFee: {
     type: Number,
-    default: 0,
+    default: 30,
     min: 0
   },
   
@@ -188,9 +189,9 @@ storeSchema.index({ category: 1, isOpen: 1, available: 1 });
 
 // ✅ Virtual for average rating calculation
 storeSchema.virtual('averageRating').get(function() {
-  if (this.reviews.length === 0) return 0;
-  const sum = this.reviews.reduce((acc, review) => acc + review.rating, 0);
-  return (sum / this.reviews.length).toFixed(1);
+  if (this.reviews?.length === 0) return 0;
+  const sum = this.reviews?.reduce((acc, review) => acc + review.rating, 0);
+  return (sum / this.reviews?.length).toFixed(1);
 });
 
 // ✅ Method to check if store is currently open

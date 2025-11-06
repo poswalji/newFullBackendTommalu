@@ -88,6 +88,7 @@ const AppError = require('../utils/appError');
 const User = require("../models/user");
 const Menu = require("../models/menuItems");
 const Store = require("../models/store");
+const Cart = require("../models/cartSchema");
 
 // ✅ CREATE ORDER - Fixed to use authenticated user with fraud detection
 exports.createOrder = asyncHandler(async(req, res, next) => {
@@ -382,10 +383,10 @@ exports.createOrderFromCart = asyncHandler(async (req, res, next) => {
     const { deliveryAddress, paymentMethod = 'cash_on_delivery' } = req.body;
     const userId = req.user._id;
 
-    // Get user with cart
-    const user = await User.findById(userId).populate('cart.items.menuItemId');
+    // Get cart for the user - Cart is a separate model, not embedded in User
+    const cart = await Cart.findOne({ userId }).populate('items.menuItemId', 'name price image');
     
-    if (!user.cart || !user.cart.items || user.cart.items.length === 0) {
+    if (!cart || !cart.items || cart.items.length === 0) {
         return next(new AppError('Cart is empty', 400));
     }
 
@@ -393,24 +394,24 @@ exports.createOrderFromCart = asyncHandler(async (req, res, next) => {
         return next(new AppError('Delivery address is required', 400));
     }
 
-    if (!user.cart.storeId) {
+    if (!cart.storeId) {
         return next(new AppError('Invalid cart data', 400));
     }
 
     // ✅ FIXED: Use menuItemId (schema ke according)
-    const items = user.cart.items.map(item => ({
-        menuItemId: item.menuItemId._id,  // ✅ Correct field name
-        itemName: item.menuItemId.name,
+    const items = cart.items.map(item => ({
+        menuItemId: item.menuItemId._id || item.menuItemId,  // Handle both populated and non-populated cases
+        itemName: item.menuItemId?.name || item.itemName,
         quantity: item.quantity,
-        itemPrice: item.menuItemId.price
+        itemPrice: item.menuItemId?.price || item.price
     }));
 
     // Use cart finalAmount if available, otherwise calculate
-    const finalPrice = user.cart.finalAmount || user.cart.totalAmount;
+    const finalPrice = cart.finalAmount || cart.totalAmount;
 
     // Create order
     const newOrder = await Order.create({
-        storeId: user.cart.storeId,
+        storeId: cart.storeId,
         userId,
         items,
         finalPrice,
@@ -420,15 +421,13 @@ exports.createOrderFromCart = asyncHandler(async (req, res, next) => {
     });
 
     // Clear cart after successful order
-    user.cart = { 
-        items: [], 
-        storeId: null, 
-        totalAmount: 0,
-        deliveryCharge: 0,
-        finalAmount: 0,
-        discount: null
-    };
-    await user.save();
+    cart.items = [];
+    cart.totalItems = 0;
+    cart.totalAmount = 0;
+    cart.deliveryCharge = 0;
+    cart.finalAmount = 0;
+    cart.discount = null;
+    await cart.save();
 
     // Populate the order for response
     await newOrder.populate('storeId', 'storeName');

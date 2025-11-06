@@ -283,6 +283,36 @@ router.patch('/stores/:id/metadata', restrictAdminTo('superAdmin'), adminControl
  *         description: Commission updated
  */
 router.patch('/stores/:id/commission', restrictAdminTo('superAdmin'), adminController.updateStoreCommission);
+/**
+ * @openapi
+ * /api/admin/stores/{id}/delivery-fee:
+ *   patch:
+ *     tags: [Admin]
+ *     summary: Update store delivery charge (admin only)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [deliveryFee]
+ *             properties:
+ *               deliveryFee:
+ *                 type: number
+ *                 minimum: 0
+ *                 description: Delivery charge in rupees (default 30)
+ *     responses:
+ *       200:
+ *         description: Delivery charge updated
+ */
+router.patch('/stores/:id/delivery-fee', restrictAdminTo('superAdmin'), adminController.updateStoreDeliveryFee);
 
 // Analytics & Reports
 router.get('/analytics/dashboard', restrictAdminTo('superAdmin', 'supportAdmin'), adminController.getDashboardAnalytics);

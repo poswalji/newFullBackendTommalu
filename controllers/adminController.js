@@ -219,7 +219,7 @@ exports.listPendingStores = asyncHandler(async (req, res) => {
   // Validate and sanitize pagination
   const { page: pageNum, limit: limitNum, skip } = sanitizePagination(page, limit, 100);
   
-  const filter = { status: { $in: ['submitted', 'pendingApproval'] } };
+  const filter = { status: { $in: ['submitted', 'pendingApproval',"draft"] } };
   
   // Validate category if provided
   if (category) {
@@ -420,6 +420,50 @@ exports.updateStoreCommission = asyncHandler(async (req, res, next) => {
       phone: store.phone,
       category: store.category,
       commissionRate: store.commissionRate,
+      status: store.status,
+      ownerId: store.ownerId
+    }
+  });
+});
+
+// ✅ PATCH /api/admin/stores/:id/delivery-fee - Update store delivery charge (admin only)
+exports.updateStoreDeliveryFee = asyncHandler(async (req, res, next) => {
+  const { deliveryFee } = req.body;
+  const storeId = req.params.id;
+  
+  // Validate ObjectId
+  if (!isValidObjectId(storeId)) {
+    return next(new AppError('Invalid store ID', 400));
+  }
+  
+  // Validate deliveryFee
+  if (deliveryFee === undefined || deliveryFee === null) {
+    return next(new AppError('deliveryFee is required', 400));
+  }
+  
+  const deliveryFeeNum = Number(deliveryFee);
+  if (isNaN(deliveryFeeNum) || deliveryFeeNum < 0) {
+    return next(new AppError('deliveryFee must be a positive number', 400));
+  }
+  
+  const store = await Store.findByIdAndUpdate(
+    storeId,
+    { deliveryFee: deliveryFeeNum },
+    { new: true, runValidators: true }
+  ).populate('ownerId', 'name email phone');
+  
+  if (!store) return next(new AppError('Store not found', 404));
+  
+  res.json({ 
+    success: true,
+    message: 'Delivery charge updated successfully',
+    data: {
+      id: store._id,
+      storeName: store.storeName,
+      address: store.address,
+      phone: store.phone,
+      category: store.category,
+      deliveryFee: store.deliveryFee,
       status: store.status,
       ownerId: store.ownerId
     }
@@ -1088,6 +1132,7 @@ exports.listAllStores = asyncHandler(async (req, res, next) => {
   const [stores, total] = await Promise.all([
     Store.find(filter)
       .populate('ownerId', 'name email phone')
+      .select('storeName address phone category status deliveryFee commissionRate ownerId isOpen available createdAt')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(Number(limit)),
