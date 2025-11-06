@@ -89,6 +89,7 @@ const User = require("../models/user");
 const Menu = require("../models/menuItems");
 const Store = require("../models/store");
 const Cart = require("../models/cartSchema");
+const notificationService = require('../services/notificationService');
 
 // ✅ CREATE ORDER - Fixed to use authenticated user with fraud detection
 exports.createOrder = asyncHandler(async(req, res, next) => {
@@ -207,6 +208,34 @@ exports.createOrder = asyncHandler(async(req, res, next) => {
         }
     });
     
+    // ✅ Send real-time notifications via Socket.io
+    // Notify store owner about new order
+    notificationService.notifyStoreOwnerNewOrder(newOrder).catch(err => {
+        console.error('Error notifying store owner:', err);
+    });
+    
+    // Notify admin about new order
+    notificationService.notifyAdminNewOrder(newOrder).catch(err => {
+        console.error('Error notifying admin:', err);
+    });
+    
+    // Notify customer about order creation
+    notificationService.createNotification({
+        userId: newOrder.userId,
+        title: 'Order Placed Successfully',
+        message: `Your order #${newOrder._id.toString().slice(-6)} has been placed successfully`,
+        type: 'order_created',
+        relatedId: newOrder._id,
+        relatedModel: 'Order',
+        metadata: {
+            orderId: newOrder._id,
+            finalPrice: newOrder.finalPrice,
+            storeId: newOrder.storeId
+        }
+    }).catch(err => {
+        console.error('Error creating customer notification:', err);
+    });
+    
     res.status(201).json({
         success: true,
         data: {
@@ -317,6 +346,29 @@ exports.updateOrderStatus = asyncHandler(async (req, res, next) => {
     ).populate('userId', 'name email phone')
      .populate('storeId', 'storeName');
     
+    // ✅ Send real-time notifications via Socket.io
+    // Notify customer about status update
+    notificationService.notifyCustomerOrderUpdate(updatedOrder, status).catch(err => {
+        console.error('Error notifying customer:', err);
+    });
+    
+    // Notify admin about status update
+    notificationService.createNotification({
+        userId: updatedOrder.userId?._id || updatedOrder.userId,
+        title: `Order ${status}`,
+        message: `Order #${updatedOrder._id.toString().slice(-6)} status updated to ${status}`,
+        type: 'order_status_updated',
+        relatedId: updatedOrder._id,
+        relatedModel: 'Order',
+        metadata: {
+            orderId: updatedOrder._id,
+            status,
+            storeId: updatedOrder.storeId?._id || updatedOrder.storeId
+        }
+    }).catch(err => {
+        console.error('Error creating admin notification:', err);
+    });
+    
     res.status(200).json({
         success: true,
         message: `Order status updated to ${status}`,
@@ -338,7 +390,7 @@ exports.updateOrderStatus = asyncHandler(async (req, res, next) => {
             customerEmail: updatedOrder.userId?.email,
             storeName: updatedOrder.storeId?.storeName
         }
-    }); 
+    });
 });
 
 // ✅ GET STORE ORDERS - Enhanced with better population
@@ -433,6 +485,34 @@ exports.createOrderFromCart = asyncHandler(async (req, res, next) => {
     await newOrder.populate('storeId', 'storeName');
     await newOrder.populate('items.menuItemId', 'name');
 
+    // ✅ Send real-time notifications via Socket.io
+    // Notify store owner about new order
+    notificationService.notifyStoreOwnerNewOrder(newOrder).catch(err => {
+        console.error('Error notifying store owner:', err);
+    });
+    
+    // Notify admin about new order
+    notificationService.notifyAdminNewOrder(newOrder).catch(err => {
+        console.error('Error notifying admin:', err);
+    });
+    
+    // Notify customer about order creation
+    notificationService.createNotification({
+        userId: newOrder.userId,
+        title: 'Order Placed Successfully',
+        message: `Your order #${newOrder._id.toString().slice(-6)} has been placed successfully`,
+        type: 'order_created',
+        relatedId: newOrder._id,
+        relatedModel: 'Order',
+        metadata: {
+            orderId: newOrder._id,
+            finalPrice: newOrder.finalPrice,
+            storeId: newOrder.storeId
+        }
+    }).catch(err => {
+        console.error('Error creating customer notification:', err);
+    });
+
     res.status(201).json({
         success: true,
         message: 'Order created successfully from cart',
@@ -478,6 +558,43 @@ exports.cancelOrder = asyncHandler(async (req, res, next) => {
     order.cancelledTime = new Date();
     
     await order.save();
+
+    // ✅ Send real-time notifications via Socket.io
+    // Notify store owner about cancellation
+    const store = await Store.findById(order.storeId).populate('ownerId');
+    if (store && store.ownerId) {
+        notificationService.createNotification({
+            userId: store.ownerId._id || store.ownerId,
+            title: 'Order Cancelled',
+            message: `Order #${order._id.toString().slice(-6)} has been cancelled by customer`,
+            type: 'order_cancelled',
+            relatedId: order._id,
+            relatedModel: 'Order',
+            metadata: {
+                orderId: order._id,
+                cancellationReason,
+                finalPrice: order.finalPrice
+            }
+        }).catch(err => {
+            console.error('Error notifying store owner:', err);
+        });
+    }
+    
+    // Notify customer about cancellation
+    notificationService.createNotification({
+        userId: order.userId,
+        title: 'Order Cancelled',
+        message: `Your order #${order._id.toString().slice(-6)} has been cancelled`,
+        type: 'order_cancelled',
+        relatedId: order._id,
+        relatedModel: 'Order',
+        metadata: {
+            orderId: order._id,
+            cancellationReason
+        }
+    }).catch(err => {
+        console.error('Error notifying customer:', err);
+    });
 
     res.status(200).json({
         success: true,
@@ -632,6 +749,13 @@ exports.updateOrderStatusAdmin = asyncHandler(async (req, res, next) => {
         { new: true, runValidators: true }
     ).populate('userId', 'name email').populate('storeId', 'storeName');
     if (!updated) return next(new AppError('Order not found', 404));
+    
+    // ✅ Send real-time notifications via Socket.io
+    // Notify customer about status update
+    notificationService.notifyCustomerOrderUpdate(updated, status).catch(err => {
+        console.error('Error notifying customer:', err);
+    });
+    
     res.status(200).json({ 
         success: true, 
         message: `Order status updated to ${status}`, 

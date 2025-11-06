@@ -87,8 +87,20 @@ const userSchema = new mongoose.Schema({
   verificationCodeExpires: {
     type: Date,
     select: false
+  },
+  
+  // ✅ Push notification token for mobile/web push notifications
+  fcmToken: {
+    type: String,
+    sparse: true
+  },
+  
+  // ✅ Notification preferences
+  notificationSettings: {
+    email: { type: Boolean, default: true },
+    push: { type: Boolean, default: true },
+    sms: { type: Boolean, default: false }
   }
-   
 
 },
 {
