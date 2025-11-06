@@ -18,7 +18,8 @@ exports.initializeSocket = (server) => {
       credentials: true,
       methods: ["GET", "POST"]
     },
-    transports: ['websocket', 'polling']
+    // ✅ FIXED: Use polling only for Vercel compatibility (Vercel doesn't support WebSockets)
+    transports: ['polling'] // Only polling transport for Vercel compatibility
   });
 
   // Authentication middleware for Socket.io
