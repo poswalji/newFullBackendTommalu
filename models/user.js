@@ -89,6 +89,16 @@ const userSchema = new mongoose.Schema({
     select: false
   },
   
+  // ✅ Password reset fields
+  resetPasswordToken: {
+    type: String,
+    select: false
+  },
+  resetPasswordExpires: {
+    type: Date,
+    select: false
+  },
+  
   // ✅ Push notification token for mobile/web push notifications
   fcmToken: {
     type: String,

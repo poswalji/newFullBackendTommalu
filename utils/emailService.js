@@ -51,28 +51,50 @@ exports.sendVerificationEmail = async (email, code) => {
   }
 };
 
-// Send password reset email (for future use)
-exports.sendPasswordResetEmail = async (email, resetToken) => {
+// Send password reset email
+exports.sendPasswordResetEmail = async (email, resetToken, resetUrl) => {
   try {
     const transporter = createTransporter();
-
-    const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
 
     const mailOptions = {
       from: `"Tommalu" <${process.env.EMAIL_USER}>`,
       to: email,
-      subject: 'Password Reset - Tommalu',
+      subject: 'Password Reset Request - Tommalu',
       html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <h2>Reset Your Password</h2>
-          <p>Click the link below to reset your password:</p>
-          <a href="${resetUrl}" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Reset Password</a>
-          <p>This link will expire in 1 hour.</p>
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9;">
+          <div style="background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <h2 style="color: #333; margin-bottom: 20px;">Password Reset Request</h2>
+            <p style="color: #666; font-size: 16px; line-height: 1.6;">
+              We received a request to reset your password. Click the button below to create a new password:
+            </p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${resetUrl}" style="background-color: #007bff; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold; font-size: 16px;">
+                Reset Password
+              </a>
+            </div>
+            <p style="color: #666; font-size: 14px; line-height: 1.6;">
+              Or copy and paste this link into your browser:
+            </p>
+            <p style="color: #007bff; font-size: 12px; word-break: break-all; background-color: #f0f0f0; padding: 10px; border-radius: 5px;">
+              ${resetUrl}
+            </p>
+            <p style="color: #999; font-size: 14px; line-height: 1.6; margin-top: 20px;">
+              <strong>Important:</strong> This link will expire in 1 hour for security reasons.
+            </p>
+            <p style="color: #999; font-size: 14px; line-height: 1.6;">
+              If you didn't request a password reset, please ignore this email. Your password will remain unchanged.
+            </p>
+            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+            <p style="color: #999; font-size: 12px; text-align: center;">
+              © ${new Date().getFullYear()} Tommalu. All rights reserved.
+            </p>
+          </div>
         </div>
       `
     };
 
-    await transporter.sendMail(mailOptions);
+    const info = await transporter.sendMail(mailOptions);
+    console.log('Password reset email sent:', info.messageId);
     return true;
   } catch (error) {
     console.error('Error sending password reset email:', error);

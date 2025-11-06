@@ -3,7 +3,8 @@ const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/appError');
 const { OAuth2Client } = require('google-auth-library');
 const jwt = require('jsonwebtoken');
-const { sendVerificationEmail } = require('../utils/emailService');
+const { sendVerificationEmail, sendPasswordResetEmail } = require('../utils/emailService');
+const crypto = require('crypto');
 
 // Google OAuth client
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -508,5 +509,125 @@ exports.resendVerificationCode = asyncHandler(async (req, res, next) => {
     res.status(200).json({
         success: true,
         message: 'Verification code has been resent to your email'
+    });
+});
+
+// ✅ Forgot Password
+exports.forgotPassword = asyncHandler(async (req, res, next) => {
+    const { email } = req.body;
+
+    if (!email) {
+        return next(new AppError('Please provide your email address', 400));
+    }
+
+    // Find user by email
+    const user = await User.findOne({ email });
+
+    // Don't reveal if user exists or not for security
+    if (!user) {
+        // Still return success to prevent email enumeration
+        return res.status(200).json({
+            success: true,
+            message: 'If an account with that email exists, a password reset link has been sent.'
+        });
+    }
+
+    // Check if user has a password (Google users might not have one)
+    if (!user.password) {
+        return res.status(200).json({
+            success: true,
+            message: 'If an account with that email exists, a password reset link has been sent.'
+        });
+    }
+
+    // Generate reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+
+    // Save hashed token and expiry (1 hour)
+    user.resetPasswordToken = hashedToken;
+    user.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    await user.save({ validateBeforeSave: false });
+
+    // Send password reset email
+    try {
+        const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
+        await sendPasswordResetEmail(user.email, resetToken, resetUrl);
+    } catch (emailError) {
+        // Reset the token fields if email fails
+        user.resetPasswordToken = undefined;
+        user.resetPasswordExpires = undefined;
+        await user.save({ validateBeforeSave: false });
+        
+        return next(new AppError('Failed to send password reset email. Please try again later.', 500));
+    }
+
+    res.status(200).json({
+        success: true,
+        message: 'If an account with that email exists, a password reset link has been sent.'
+    });
+});
+
+// ✅ Reset Password
+exports.resetPassword = asyncHandler(async (req, res, next) => {
+    const { token, password } = req.body;
+
+    if (!token || !password) {
+        return next(new AppError('Token and password are required', 400));
+    }
+
+    // Validate password length
+    if (password.length < 6) {
+        return next(new AppError('Password must be at least 6 characters long', 400));
+    }
+
+    // Hash the token to compare with stored token
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+    // Find user with valid reset token
+    const user = await User.findOne({
+        resetPasswordToken: hashedToken,
+        resetPasswordExpires: { $gt: new Date() }
+    }).select('+resetPasswordToken +resetPasswordExpires');
+
+    if (!user) {
+        return next(new AppError('Invalid or expired reset token', 400));
+    }
+
+    // Update password
+    user.password = password;
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+    await user.save();
+
+    // Generate new auth token
+    const authToken = user.generateAuthToken();
+    const refreshToken = jwt.sign(
+        { id: user._id, type: 'refresh' },
+        process.env.REFRESH_JWT_SECRET || process.env.JWT_SECRET,
+        { expiresIn: process.env.REFRESH_JWT_EXPIRES_IN || '30d' }
+    );
+
+    // Set httpOnly refresh cookie
+    res.cookie('refreshToken', refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 30 * 24 * 60 * 60 * 1000,
+        path: '/'
+    });
+
+    res.status(200).json({
+        success: true,
+        message: 'Password has been reset successfully',
+        token: authToken,
+        user: {
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            phone: user.phone,
+            addresses: user.addresses || []
+        }
     });
 });

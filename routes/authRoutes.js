@@ -234,4 +234,55 @@ router.post('/verify-email', authController.verifyEmail);
  */
 router.post('/resend-verification', authController.resendVerificationCode);
 
+/**
+ * @openapi
+ * /api/auth/forgot-password:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Request password reset
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email]
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: User email address
+ *     responses:
+ *       200:
+ *         description: Password reset email sent (if account exists)
+ */
+router.post('/forgot-password', authController.forgotPassword);
+
+/**
+ * @openapi
+ * /api/auth/reset-password:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Reset password with token
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [token, password]
+ *             properties:
+ *               token:
+ *                 type: string
+ *                 description: Password reset token from email
+ *               password:
+ *                 type: string
+ *                 minLength: 6
+ *                 description: New password
+ *     responses:
+ *       200:
+ *         description: Password reset successfully
+ */
+router.post('/reset-password', authController.resetPassword);
+
 module.exports = router;
