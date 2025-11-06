@@ -39,6 +39,7 @@ process.on('uncaughtException', (err) => {
 
 const allowedOrigins = [
   process.env.FRONTEND_URL,
+  "https://tommalu.com",
   "http://localhost:3000",
   "http://localhost:3001",
   "http://localhost:5173",

@@ -9,7 +9,7 @@ let io;
 exports.initializeSocket = (server) => {
   io = new Server(server, {
     cors: {
-      origin: process.env.FRONTEND_URL || [
+      origin: [process.env.FRONTEND_URL," https://tommalu.com/"] || [
         "http://localhost:3000",
         "http://localhost:3001",
         "http://localhost:5173",
