@@ -8,8 +8,11 @@ const morgan = require('morgan');
 const mongoose = require('mongoose');
 const { swaggerSpec } = require('./docs/swagger');
 const { logger, info, error } = require('./utils/logger');
+const http = require('http');
+const { initializeSocket } = require('./utils/socket');
 
 const app = express();
+let httpServer = null;
 
 // MongoDB connection configuration
 const mongoUri = process.env.MONGO_URI;
@@ -253,13 +256,35 @@ app.use((err, req, res, next) => {
 // For traditional server, we connect immediately
 const PORT = process.env.PORT || 5000;
 
+// Function to initialize Socket.IO if HTTP server is available
+const initializeSocketIfAvailable = () => {
+  if (httpServer) {
+    try {
+      initializeSocket(httpServer);
+      info("✅ Socket.io initialized", {
+        service: "tommalu-backend"
+      });
+    } catch (err) {
+      error("⚠️ Failed to initialize Socket.io", {
+        message: err.message,
+        stack: err.stack,
+      });
+    }
+  }
+};
+
 // Connect to database and start server if not in serverless environment
 if (require.main === module) {
   // Running as main module (traditional server, not imported)
   (async () => {
     try {
       await connectDB();
-      app.listen(PORT, () => {
+      // Create HTTP server and attach Express app
+      httpServer = http.createServer(app);
+      // Initialize Socket.IO
+      initializeSocketIfAvailable();
+      // Start server
+      httpServer.listen(PORT, () => {
         info(`🚀 Server running on port ${PORT}`, {
           port: PORT,
           env: process.env.NODE_ENV || 'development',
@@ -281,6 +306,27 @@ if (require.main === module) {
       message: err.message,
     });
   });
+  
+  // Note: Socket.IO requires a persistent HTTP server connection
+  // In traditional serverless environments (AWS Lambda, Vercel serverless functions),
+  // Socket.IO won't work because each request is a separate function invocation.
+  // Socket.IO will only work if:
+  // 1. The platform supports persistent WebSocket connections (e.g., Vercel with WebSocket support)
+  // 2. The HTTP server is provided by the platform and accessible
+  // For now, Socket.IO initialization is skipped in serverless environments
+  // If your platform supports WebSockets, you'll need to initialize Socket.IO
+  // when you have access to the HTTP server (e.g., in a Vercel serverless function handler)
 }
 
+// Export both app and helper functions
 module.exports = app;
+module.exports.getHttpServer = () => httpServer;
+
+// Helper function to initialize Socket.IO with a provided HTTP server
+// Useful for serverless environments that support WebSockets
+module.exports.initializeSocketWithServer = (server) => {
+  if (server) {
+    httpServer = server;
+    initializeSocketIfAvailable();
+  }
+};
