@@ -776,6 +776,7 @@ exports.getOrderPublic = asyncHandler(async (req, res, next) => {
             status: order.status,
             finalPrice: order.finalPrice,
             storeName: order.storeId?.storeName,
+            storeId: order.storeId._id,
             items: order.items,
             createdAt: order.createdAt,
             updatedAt: order.updatedAt
