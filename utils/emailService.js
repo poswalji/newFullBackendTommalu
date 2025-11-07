@@ -1,5 +1,5 @@
 const nodemailer = require('nodemailer');
-
+const frontendUrl = process.env.FRONTEND_URL || "https://tommalu.com"
 // Create reusable transporter object using SMTP transport
 const createTransporter = () => {
   return nodemailer.createTransport({
@@ -147,7 +147,7 @@ exports.sendOrderTrackingEmail = async (email, orderData) => {
             </div>
             <p style="color: #666; font-size: 14px; line-height: 1.6;">
               You can track your order status in your account dashboard.
-              <a href="${process.env.FRONTEND_URL}/order/${orderId}" style="color: #007bff; text-decoration: none;">Track your order</a>
+              <a href="${frontendUrl}/order/${orderId}" style="color: #007bff; text-decoration: none;">Track your order</a>
             </p>
             <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
             <p style="color: #999; font-size: 12px; text-align: center;">
@@ -202,7 +202,7 @@ exports.sendDeliveryAssignmentEmail = async (email, deliveryData) => {
             </div>
             <p style="color: #666; font-size: 14px; line-height: 1.6;">
               Please update the order status in the admin dashboard once delivery is completed.
-              <a href="${process.env.FRONTEND_URL}/order/${orderId}" style="color: #007bff; text-decoration: none;">Track your order</a>
+              <a href="${frontendUrl}/order/${orderId}" style="color: #007bff; text-decoration: none;">Track your order</a>
             </p>
             <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
             <p style="color: #999; font-size: 12px; text-align: center;">
@@ -249,7 +249,7 @@ exports.sendNewOrderEmailToStoreOwner = async (email, orderData) => {
             </div>
             <p style="color: #666; font-size: 14px; line-height: 1.6;">
               Please log in to your dashboard to view order details and update the status.
-              <a href="${process.env.FRONTEND_URL}/store-owner/orders" style="color: #007bff; text-decoration: none;">View orders</a>
+              <a href="${frontendUrl}/store-owner/orders" style="color: #007bff; text-decoration: none;">View orders</a>
             </p>
             <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
             <p style="color: #999; font-size: 12px; text-align: center;">

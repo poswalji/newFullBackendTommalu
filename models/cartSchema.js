@@ -15,8 +15,20 @@ const cartSchema = new mongoose.Schema(
          default: 0,
       },
       discount: {
-         type: Number,
-         default: 0,
+         code: {
+            type: String,
+            required: false,
+         },
+         discountAmount: {
+            type: Number,
+            default: 0,
+         },
+         promotionId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Promotion',
+            required: false,
+         },
+         _id: false, // Don't create _id for subdocuments
       },
       storeName: {
          type: String,

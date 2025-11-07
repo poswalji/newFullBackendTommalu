@@ -223,6 +223,25 @@ router.post('/stores/:id/reject', restrictAdminTo('superAdmin'), adminController
 router.patch('/stores/:id/suspend', restrictAdminTo('superAdmin'), adminController.suspendStore);
 /**
  * @openapi
+ * /api/admin/stores/{id}/reactivate:
+ *   patch:
+ *     tags: [Admin]
+ *     summary: Reactivate a store
+ *     description: Reactivates a suspended store, making it active and available again.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Store reactivated
+ */
+router.patch('/stores/:id/reactivate', restrictAdminTo('superAdmin'), adminController.reactivateStore);
+/**
+ * @openapi
  * /api/admin/stores/{id}/metadata:
  *   patch:
  *     tags: [Admin]

@@ -372,6 +372,36 @@ exports.suspendStore = asyncHandler(async (req, res, next) => {
   });
 });
 
+// PATCH /api/admin/stores/:id/reactivate
+exports.reactivateStore = asyncHandler(async (req, res, next) => {
+  const storeId = req.params.id;
+  
+  // Validate ObjectId
+  if (!isValidObjectId(storeId)) {
+    return next(new AppError('Invalid store ID', 400));
+  }
+  
+  const store = await Store.findByIdAndUpdate(
+    storeId,
+    { status: 'active', available: true },
+    { new: true }
+  ).populate('ownerId', 'name email phone');
+  if (!store) return next(new AppError('Store not found', 404));
+  res.json({ 
+    success: true, 
+    data: {
+      id: store._id,
+      storeName: store.storeName,
+      address: store.address,
+      phone: store.phone,
+      category: store.category,
+      status: store.status,
+      available: store.available,
+      ownerId: store.ownerId
+    }
+  });
+});
+
 // PATCH /api/admin/stores/:id/metadata
 exports.updateStoreMetadata = asyncHandler(async (req, res, next) => {
   const allowed = ['category', 'description', 'openingTime', 'closingTime', 'deliveryFee', 'minOrder'];
