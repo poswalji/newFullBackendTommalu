@@ -37,20 +37,8 @@ const storeSchema = new mongoose.Schema({
     match: [/^\d{10}$/, 'Please enter a valid 10-digit phone number']
   },
   
-  // ✅ LICENSE INFORMATION (Internal use only)
-  licenseNumber: { 
-    type: String, 
-    required: true 
-  },
-  licenseType: { 
-    type: String,
-    enum: ["FSSAI", "GST", "Shop Act", "Trade License", "Other"],
-    required: true 
-  },
-  licenseDocument: { // Store license document URL
-    type: String,
-    required: false
-  },
+ 
+
   
   // ✅ Enhanced Category System
   category: { 
@@ -80,11 +68,7 @@ const storeSchema = new mongoose.Schema({
     maxlength: 500
   },
   
-  // ✅ Enhanced Delivery Info
-  deliveryTime: { 
-    type: String, 
-    default: "20-30 min" 
-  },
+ 
   minOrder: { 
     type: Number, 
     default: 49,

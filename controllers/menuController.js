@@ -49,7 +49,7 @@ exports.getAllProducts = asyncHandler(async (req, res, next) => {
 
     const [menuItems, total] = await Promise.all([
         MenuItem.find(filter)
-            .populate('storeId', 'storeName category address phone isOpen rating')
+            .populate('storeId', 'storeName category address phone isOpen rating status')
             .sort(sortOptions)
             .skip(skip)
             .limit(parseInt(limit))
@@ -60,9 +60,14 @@ exports.getAllProducts = asyncHandler(async (req, res, next) => {
     // Get unique categories from filtered items
     const categories = await MenuItem.distinct('category', filter);
 
+
+    
+
     res.status(200).json({
         success: true,
-        data: menuItems.map(item => ({
+        data: menuItems.filter((item)=>
+            item.storeId?.isOpen && item.storeId?.status=="active"
+        ).map(item => ({
             id: item._id,
             name: item.name,
             price: item.price,

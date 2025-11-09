@@ -121,15 +121,10 @@ exports.createStore = asyncHandler(async (req, res, next) => {
         storeName, 
         address, 
         phone, 
-        licenseNumber,
-        licenseType,
         category, 
         description,
-        deliveryTime, 
-        minOrder,
         openingTime,
         closingTime,
-        deliveryFee,
         latitude,
         longitude,
         location
@@ -144,11 +139,7 @@ exports.createStore = asyncHandler(async (req, res, next) => {
         return next(new AppError('You already have a store with this name', 400));
     }
 
-    // ✅ Check if license number already exists
-    const existingLicense = await Store.findOne({ licenseNumber });
-    if (existingLicense) {
-        return next(new AppError('License number already exists', 400));
-    }
+   
 
     // ✅ Prepare location data if coordinates are provided
     let locationData = undefined;
@@ -171,15 +162,10 @@ exports.createStore = asyncHandler(async (req, res, next) => {
         storeName,
         address,
         phone,
-        licenseNumber,
-        licenseType,
         category,
         description,
-        deliveryTime: deliveryTime || "20-30 min",
-        minOrder: minOrder || 49,
         openingTime: openingTime || "09:00",
         closingTime: closingTime || "23:00",
-        deliveryFee: deliveryFee || 0,
         status: 'pendingApproval' // Set status to pendingApproval when store is created (ready for admin review)
     };
 
@@ -207,8 +193,6 @@ exports.createStore = asyncHandler(async (req, res, next) => {
             licenseType: store.licenseType,
             category: store.category,
             description: store.description,
-            deliveryTime: store.deliveryTime,
-            minOrder: store.minOrder,
             openingTime: store.openingTime,
             closingTime: store.closingTime,
             deliveryFee: store.deliveryFee,
