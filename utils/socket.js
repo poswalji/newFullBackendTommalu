@@ -9,7 +9,7 @@ let io;
 exports.initializeSocket = (server) => {
   io = new Server(server, {
     cors: {
-      origin: [process.env.FRONTEND_URL," https://tommalu.com/"] || [
+      origin: [process.env.FRONTEND_URL," https://tommalu.com"] || [
         "http://localhost:3000",
         "http://localhost:3001",
         "http://localhost:5173",
@@ -19,7 +19,7 @@ exports.initializeSocket = (server) => {
       methods: ["GET", "POST"]
     },
     // ✅ FIXED: Use polling only for Vercel compatibility (Vercel doesn't support WebSockets)
-    transports: ['polling'] // Only polling transport for Vercel compatibility
+    // Only polling transport for Vercel compatibility
   });
 
   // Authentication middleware for Socket.io
@@ -119,4 +119,5 @@ exports.emitToAll = (event, data) => {
     io.emit(event, data);
   }
 };
+
 
