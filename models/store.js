@@ -189,6 +189,21 @@ storeSchema.methods.isCurrentlyOpen = function() {
   return currentTime >= this.openingTime && currentTime <= this.closingTime;
 };
 
+// ✅ Method to check if the store is open by time
+storeSchema.methods.isOpenByTime = function () {
+  if (!this.isOpen || !this.openingTime || !this.closingTime) {
+    return false;
+  }
+  const now = new Date();
+  const currentTime = now.getHours() * 60 + now.getMinutes(); // Current time in minutes
+  const [openHour, openMinute] = this.openingTime.split(':').map(Number);
+  const [closeHour, closeMinute] = this.closingTime.split(':').map(Number);
+  const openTime = openHour * 60 + openMinute;
+  const closeTime = closeHour * 60 + closeMinute;
+
+  return currentTime >= openTime && currentTime < closeTime;
+};
+
 // ✅ Virtual populate for menu items
 storeSchema.virtual("menu", {
   ref: "MenuItem",
