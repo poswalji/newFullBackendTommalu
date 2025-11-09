@@ -49,12 +49,7 @@ const userSchema = new mongoose.Schema({
     default: "customer"
   },
 
-  // Sub-role for admins
-  adminRole: {
-    type: String,
-    enum: ["superAdmin", "supportAdmin"],
-  },
-
+ 
   // Account status controls access for moderation actions
   status: {
     type: String,

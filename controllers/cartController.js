@@ -6,7 +6,6 @@ const AppError = require('../utils/appError');
 const Cart = require('../models/cartSchema'); // ✅ correct import path
 const Promotion = require('../models/promotion');
 
-const redisClient = null; // Optional: replace with actual redis client if available
 
 // NOTE: In production replace this in-memory store with Redis
 const guestCarts = new Map();

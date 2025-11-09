@@ -7,19 +7,27 @@ let io;
 
 // Initialize Socket.io server
 exports.initializeSocket = (server) => {
+  // Build allowed origins array
+  const allowedOrigins = [
+    process.env.FRONTEND_URL,
+    "https://tommalu.com",
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001",
+    "http://127.0.0.1:5173",
+    "https://tommalu.netlify.app"
+  ].filter(Boolean); // Remove undefined values
+
   io = new Server(server, {
     cors: {
-      origin: [process.env.FRONTEND_URL," https://tommalu.com/"] || [
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "http://localhost:5173",
-        "https://tommalu.netlify.app"
-      ],
+      origin: allowedOrigins,
       credentials: true,
-      methods: ["GET", "POST"]
+      methods: ["GET", "POST", "OPTIONS"],
+      allowedHeaders: ["Content-Type", "Authorization"]
     },
     // ✅ FIXED: Use polling only for Vercel compatibility (Vercel doesn't support WebSockets)
-    transports: ['polling'] // Only polling transport for Vercel compatibility
   });
 
   // Authentication middleware for Socket.io

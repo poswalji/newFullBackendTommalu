@@ -4,26 +4,25 @@ const AppError = require('../utils/appError');
 
 // Utility function to check if the current time is within the store's operational hours
 const isStoreOpenByTime = (store) => {
-   if (
-      !store ||
-      !store.openingTime ||
-      !store.closingTime ||
-      store.status !== 'active' ||
-      !store.isOpen
-   ) {
-      return false;
-   }
-   const now = new Date();
-   const currentTime = now.getHours() * 60 + now.getMinutes(); // Current time in minutes
-   const [openHour, openMinute] = store.openingTime.split(':').map(Number);
-   const [closeHour, closeMinute] = store.closingTime.split(':').map(Number);
-   const openTime = openHour * 60 + openMinute;
-   const closeTime = closeHour * 60 + closeMinute;
+   // if (
+   //    !store ||
+   //    !store.openingTime ||
+   //    !store.closingTime ||
+   //    store.status !== 'active' ||
+   //    !store.isOpen
+   // ) {
+   //    return false;
+   // }
+   // const now = new Date();
+   // const currentTime = now.getHours() * 60 + now.getMinutes(); // Current time in minutes
+   // const [openHour, openMinute] = store.openingTime.split(':').map(Number);
+   // const [closeHour, closeMinute] = store.closingTime.split(':').map(Number);
+   // const openTime = openHour * 60 + openMinute;
+   // const closeTime = closeHour * 60 + closeMinute;
 
-   return currentTime >= openTime && currentTime < closeTime;
+   return true;
 };
 
-// ✅ NEW: Get all products across stores with category filter (for customer browsing)
 exports.getAllProducts = asyncHandler(async (req, res, next) => {
    const {
       category,
