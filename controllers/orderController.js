@@ -328,6 +328,27 @@ exports.updateOrderStatus = asyncHandler(async (req, res, next) => {
         return next(new AppError('Not authorized to update orders for this store', 403));
     }
 
+    // ✅ Validate status transitions based on current order status
+    if (order.status === 'Pending') {
+        // From Pending, can only go to Confirmed or Rejected
+        if (!['Confirmed', 'Rejected'].includes(status)) {
+            return next(new AppError('Pending orders can only be confirmed or rejected', 400));
+        }
+    } else if (order.status === 'Confirmed') {
+        // From Confirmed, can only go to OutForDelivery
+        if (status !== 'OutForDelivery') {
+            return next(new AppError('Confirmed orders can only be marked as Out for Delivery', 400));
+        }
+    } else if (order.status === 'OutForDelivery') {
+        // From OutForDelivery, can only go to Delivered
+        if (status !== 'Delivered') {
+            return next(new AppError('Orders out for delivery can only be marked as Delivered', 400));
+        }
+    } else {
+        // Delivered, Cancelled, or Rejected orders cannot be changed
+        return next(new AppError(`Cannot update order status from ${order.status}`, 400));
+    }
+
     // ✅ Prepare update data with reasons
     const updateData = { status };
     
@@ -560,6 +581,38 @@ exports.createOrderFromCart = asyncHandler(async (req, res, next) => {
         console.error('Error creating customer notification:', err);
     });
 
+    // ✅ Save address to user if it's a new address (not in saved addresses)
+    try {
+        const user = await User.findById(userId);
+        if (user && user.addresses) {
+            // Check if this address already exists in user's saved addresses
+            const addressExists = user.addresses.some(addr => 
+                addr.street === deliveryAddress.street &&
+                addr.city === deliveryAddress.city &&
+                addr.pincode === deliveryAddress.pincode
+            );
+
+            // If address doesn't exist, save it
+            if (!addressExists) {
+                const newAddress = {
+                    label: deliveryAddress.label || 'Home',
+                    street: deliveryAddress.street,
+                    city: deliveryAddress.city,
+                    state: deliveryAddress.state || '',
+                    pincode: deliveryAddress.pincode,
+                    country: deliveryAddress.country || 'India',
+                    isDefault: user.addresses.length === 0, // Set as default if it's the first address
+                    coordinates: deliveryAddress.coordinates || null
+                };
+                user.addresses.push(newAddress);
+                await user.save();
+            }
+        }
+    } catch (err) {
+        // Log error but don't fail the order creation
+        console.error('Error saving address to user:', err);
+    }
+
     res.status(201).json({
         success: true,
         message: 'Order created successfully from cart',
@@ -596,9 +649,9 @@ exports.cancelOrder = asyncHandler(async (req, res, next) => {
         return next(new AppError('Order not found', 404));
     }
 
-    // Check if order can be cancelled (only Pending or Confirmed orders)
-    if (!['Pending', 'Confirmed'].includes(order.status)) {
-        return next(new AppError('Order cannot be cancelled at this stage', 400));
+    // Check if order can be cancelled (only Pending orders)
+    if (order.status !== 'Pending') {
+        return next(new AppError('Order cannot be cancelled after confirmation', 400));
     }
 
     order.status = 'Cancelled';
