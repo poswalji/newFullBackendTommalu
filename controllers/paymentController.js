@@ -4,9 +4,13 @@ const Store = require('../models/store');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/appError');
 
-// ✅ Create payment record for order
+// ✅ Create payment record for order (COD only)
 exports.createPayment = asyncHandler(async (req, res, next) => {
-  const { orderId, paymentMethod = 'cash_on_delivery', paymentGateway = null } = req.body;
+  const { orderId } = req.body;
+  
+  // ✅ Force payment method to cash_on_delivery only
+  const paymentMethod = 'cash_on_delivery';
+  const paymentGateway = null; // No gateway for COD
   
   const order = await Order.findById(orderId)
     .populate('storeId')
@@ -25,16 +29,16 @@ exports.createPayment = asyncHandler(async (req, res, next) => {
   // Get commission rate from store
   const commissionRate = order.storeId.commissionRate || 10;
   
-  // Create payment
+  // Create payment (COD only)
   const payment = await Payment.create({
     orderId,
     userId: order.userId._id || order.userId,
     storeId: order.storeId._id || order.storeId,
     amount: order.finalPrice,
     commissionRate,
-    paymentMethod,
-    paymentGateway,
-    status: paymentMethod === 'cash_on_delivery' ? 'pending' : 'processing'
+    paymentMethod: 'cash_on_delivery', // ✅ Only COD
+    paymentGateway: null, // No gateway for COD
+    status: 'pending' // COD payments are pending until delivery
   });
   
   // Calculate commission and payout

@@ -93,52 +93,46 @@ This document explains the complete flow from when a customer places an order un
 ### Frontend Flow
 
 1. **Payment Method Selection**
-   - If Cash on Delivery: Order proceeds without immediate payment
-   - If Online Payment: Redirects to payment gateway
-   - If Wallet: Deducts from customer wallet balance
+   - ✅ **Only Cash on Delivery (COD) is available**
+   - Order proceeds without immediate payment
+   - Customer will pay when order is delivered
 
-2. **Online Payment Gateway**
-   - Customer redirected to payment gateway (Razorpay/Stripe/Paytm)
-   - Customer completes payment
-   - Payment gateway redirects back to application
-   - Frontend receives payment confirmation
-
-3. **Payment Status Update**
-   - Frontend sends payment status update to backend
-   - Displays payment success/failure message to customer
+2. **Checkout Process**
+   - Customer selects delivery address
+   - Payment method is automatically set to Cash on Delivery
+   - No payment gateway integration required
+   - Order is placed immediately after address confirmation
 
 ### Backend Flow
 
-1. **Payment Record Creation**
-   - Creates Payment document when order is created
+1. **Automatic Payment Record Creation**
+   - ✅ Payment record is **automatically created** when order is created
+   - Payment is created in the `createOrder` and `createOrderFromCart` functions
    - Links payment to order, user, and store
-   - Sets initial payment status:
-     - Cash on Delivery: "pending"
-     - Online Payment: "processing"
-     - Wallet: "processing"
+   - Payment method is **always** set to "cash_on_delivery"
+   - Initial payment status: **"pending"** (until order is delivered)
 
 2. **Commission Calculation**
    - Retrieves store's commission rate (default: 10%)
    - Calculates commission amount: (order amount × commission rate) / 100
    - Calculates store payout amount: order amount - commission amount
-   - Stores these values in payment record
+   - Stores these values in payment record automatically
 
 3. **Payment Status Updates**
-   - For Online Payment:
-     - Updates status to "completed" after gateway confirmation
-     - Stores transaction ID and gateway response
-     - Marks payment as eligible for payout
-   - For Cash on Delivery:
-     - Status remains "pending" until order delivery
-     - Updated to "completed" when order is delivered
+   - ✅ **For Cash on Delivery:**
+     - Status remains "pending" until order is delivered
+     - When order status changes to "Delivered", payment status is automatically updated to "completed"
+     - Payment is automatically marked as "eligible" for payout
+     - No manual payment confirmation needed
 
-4. **Order Status Update**
-   - Updates order status to "Confirmed" when payment is completed
-   - Links payment ID to order document
+4. **Order-Payment Link**
+   - Payment ID is automatically linked to order document
+   - Order contains reference to payment record via `paymentId` field
 
 5. **Notifications**
-   - Notifies customer: "Payment successful"
-   - Notifies store owner: "Payment received for order"
+   - Notifies customer: "Order placed successfully"
+   - Notifies store owner: "New order received"
+   - When order is delivered, payment completion is handled automatically
 
 ---
 
@@ -426,8 +420,8 @@ This document explains the complete flow from when a customer places an order un
 ## Complete Flow Summary
 
 ### Customer Journey
-1. Browse stores → Add to cart → Checkout → Place order
-2. Make payment (if online) → Track order → Receive delivery
+1. Browse stores → Add to cart → Checkout → Place order (COD only)
+2. Track order → Receive delivery → Pay cash on delivery
 3. Rate and review → View order history
 
 ### Store Owner Journey
@@ -453,9 +447,11 @@ This document explains the complete flow from when a customer places an order un
 ## Important Notes
 
 1. **Payment Methods**
-   - Cash on Delivery: Payment completed when order is delivered
-   - Online Payment: Payment completed immediately via gateway
-   - Wallet: Payment deducted from customer wallet balance
+   - ✅ **Only Cash on Delivery (COD) is available**
+   - Payment is automatically created when order is placed
+   - Payment status is "pending" until order is delivered
+   - Payment is automatically marked as "completed" when order status changes to "Delivered"
+   - Payment is automatically marked as "eligible" for payout upon delivery
 
 2. **Commission**
    - Calculated at payment creation time

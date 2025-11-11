@@ -89,6 +89,7 @@ const User = require("../models/user");
 const Menu = require("../models/menuItems");
 const Store = require("../models/store");
 const Cart = require("../models/cartSchema");
+const Payment = require("../models/payment");
 const notificationService = require('../services/notificationService');
 const { calculateFinalAmount } = require('./cartController');
 
@@ -194,6 +195,9 @@ exports.createOrder = asyncHandler(async(req, res, next) => {
         return next(new AppError('Order flagged for review due to suspicious activity. Please contact support.', 403));
     }
     
+    // ✅ Force payment method to cash_on_delivery only
+    const paymentMethod = 'cash_on_delivery';
+    
     // Create order with fraud flags in metadata
     const newOrder = await Order.create({
         storeId, 
@@ -203,11 +207,41 @@ exports.createOrder = asyncHandler(async(req, res, next) => {
         promoCode, 
         finalPrice, 
         deliveryAddress,
+        paymentMethod, // ✅ Only cash on delivery
         metadata: {
             fraudFlags: fraudFlags.length > 0 ? fraudFlags : undefined,
             fraudChecked: true
         }
     });
+    
+    // ✅ Automatically create payment record for the order
+    try {
+        const store = await Store.findById(storeId);
+        const commissionRate = store?.commissionRate || 10;
+        
+        const payment = await Payment.create({
+            orderId: newOrder._id,
+            userId: newOrder.userId,
+            storeId: newOrder.storeId,
+            amount: newOrder.finalPrice,
+            commissionRate,
+            paymentMethod: 'cash_on_delivery', // ✅ Only COD
+            status: 'pending', // COD payments are pending until delivery
+            payoutStatus: 'pending'
+        });
+        
+        // Calculate commission and payout
+        payment.calculateCommission(commissionRate);
+        await payment.save();
+        
+        // Link payment to order
+        newOrder.paymentId = payment._id;
+        await newOrder.save();
+    } catch (paymentError) {
+        // Log error but don't fail order creation
+        console.error('Error creating payment record:', paymentError);
+        // Order is still created, payment can be created manually later if needed
+    }
     
     // ✅ Send real-time notifications via Socket.io
     // Notify store owner about new order
@@ -431,6 +465,21 @@ exports.updateOrderStatus = asyncHandler(async (req, res, next) => {
         });
     }
     
+    // ✅ Special handling: When order is Delivered, mark COD payment as completed
+    if (status === 'Delivered') {
+        try {
+            const payment = await Payment.findOne({ orderId: updatedOrder._id });
+            if (payment && payment.paymentMethod === 'cash_on_delivery' && payment.status === 'pending') {
+                payment.status = 'completed';
+                await payment.markEligibleForPayout(); // Mark as eligible for payout
+                await payment.save();
+            }
+        } catch (paymentError) {
+            console.error('Error updating payment status on delivery:', paymentError);
+            // Don't fail the order status update if payment update fails
+        }
+    }
+    
     res.status(200).json({
         success: true,
         message: `Order status updated to ${status}`,
@@ -496,8 +545,11 @@ exports.getStoreOrders = asyncHandler(async (req, res, next) => {
 
 // ✅ CREATE ORDER FROM CART - FIXED VERSION
 exports.createOrderFromCart = asyncHandler(async (req, res, next) => {
-    const { deliveryAddress, paymentMethod = 'cash_on_delivery' } = req.body;
+    const { deliveryAddress } = req.body;
     const userId = req.user._id;
+
+    // ✅ Force payment method to cash_on_delivery only
+    const paymentMethod = 'cash_on_delivery';
 
     // Get cart for the user - Cart is a separate model, not embedded in User
     const cart = await Cart.findOne({ userId }).populate('items.menuItemId', 'name price image');
@@ -536,9 +588,38 @@ exports.createOrderFromCart = asyncHandler(async (req, res, next) => {
         promoCode: cart.discount?.code || null,
         finalPrice,
         deliveryAddress,
-        paymentMethod,
+        paymentMethod: 'cash_on_delivery', // ✅ Only COD
         status: "Pending"
     });
+    
+    // ✅ Automatically create payment record for the order
+    try {
+        const store = await Store.findById(cart.storeId);
+        const commissionRate = store?.commissionRate || 10;
+        
+        const payment = await Payment.create({
+            orderId: newOrder._id,
+            userId: newOrder.userId,
+            storeId: newOrder.storeId,
+            amount: newOrder.finalPrice,
+            commissionRate,
+            paymentMethod: 'cash_on_delivery', // ✅ Only COD
+            status: 'pending', // COD payments are pending until delivery
+            payoutStatus: 'pending'
+        });
+        
+        // Calculate commission and payout
+        payment.calculateCommission(commissionRate);
+        await payment.save();
+        
+        // Link payment to order
+        newOrder.paymentId = payment._id;
+        await newOrder.save();
+    } catch (paymentError) {
+        // Log error but don't fail order creation
+        console.error('Error creating payment record:', paymentError);
+        // Order is still created, payment can be created manually later if needed
+    }
 
     // Clear cart after successful order
     cart.items = [];
