@@ -1181,4 +1181,76 @@ exports.listAllStores = asyncHandler(async (req, res, next) => {
   });
 });
 
+// GET /api/admin/stores/:id - Get store by ID (admin view with full details)
+exports.getStoreById = asyncHandler(async (req, res, next) => {
+  const storeId = req.params.id;
+  
+  // Validate ObjectId
+  if (!isValidObjectId(storeId)) {
+    return next(new AppError('Invalid store ID', 400));
+  }
+  
+  const store = await Store.findById(storeId)
+    .populate('ownerId', 'name email phone role status')
+    .populate({
+      path: 'menu',
+      options: { sort: { category: 1, name: 1 } }
+    });
+  
+  if (!store) {
+    return next(new AppError('Store not found', 404));
+  }
+  
+  // Get store statistics
+  const [orderCount, totalRevenue, totalEarnings] = await Promise.all([
+    Order.countDocuments({ storeId: store._id }),
+    Payment.aggregate([
+      { $match: { storeId: store._id, status: 'completed' } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]),
+    Payment.aggregate([
+      { $match: { storeId: store._id, status: 'completed' } },
+      { $group: { _id: null, total: { $sum: '$storePayoutAmount' } } }
+    ])
+  ]);
+  
+  res.json({
+    success: true,
+    data: {
+      id: store._id,
+      storeName: store.storeName,
+      address: store.address,
+      location: store.location,
+      phone: store.phone,
+      category: store.category,
+      description: store.description,
+      storeImages: store.storeImages || [],
+      minOrder: store.minOrder,
+      deliveryFee: store.deliveryFee,
+      openingTime: store.openingTime,
+      closingTime: store.closingTime,
+      rating: store.rating,
+      totalReviews: store.totalReviews,
+      reviews: store.reviews || [],
+      isOpen: store.isOpen,
+      available: store.available,
+      status: store.status,
+      isVerified: store.isVerified,
+      verificationNotes: store.verificationNotes,
+      rejectionReason: store.rejectionReason,
+      commissionRate: store.commissionRate,
+      ownerId: store.ownerId,
+      menu: store.menu || [],
+      statistics: {
+        orderCount,
+        totalRevenue: totalRevenue[0]?.total || 0,
+        totalEarnings: totalEarnings[0]?.total || 0,
+        timesOrdered: store.timesOrdered || 0
+      },
+      createdAt: store.createdAt,
+      updatedAt: store.updatedAt
+    }
+  });
+});
+
 

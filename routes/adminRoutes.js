@@ -364,6 +364,25 @@ router.post('/orders/:id/cancel', restrictAdminTo('superAdmin'), adminController
 
 // All Stores (with filters)
 router.get('/stores', restrictAdminTo('superAdmin', 'supportAdmin'), adminController.listAllStores);
+/**
+ * @openapi
+ * /api/admin/stores/{id}:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Get store by ID (admin view)
+ *     description: Get detailed store information including statistics and menu items.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Store details
+ */
+router.get('/stores/:id', restrictAdminTo('superAdmin', 'supportAdmin'), adminController.getStoreById);
 
 module.exports = router;
 
