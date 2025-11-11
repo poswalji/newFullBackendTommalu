@@ -130,6 +130,156 @@ exports.requestEarlyPayout = asyncHandler(async (req, res, next) => {
   });
 });
 
+// ✅ Get Store Earnings Dashboard - Comprehensive earnings overview
+exports.getEarningsDashboard = asyncHandler(async (req, res, next) => {
+  const ownerId = req.user._id;
+  const { storeId, startDate, endDate } = req.query;
+  
+  // Get stores owned by user
+  const stores = await Store.find({ ownerId });
+  const storeIds = stores.map(s => s._id);
+  
+  if (storeId && !storeIds.includes(storeId)) {
+    return next(new AppError('Store not found or unauthorized', 404));
+  }
+  
+  const paymentFilter = { 
+    storeId: storeId ? storeId : { $in: storeIds },
+    status: 'completed'
+  };
+  
+  if (startDate || endDate) {
+    paymentFilter.createdAt = {};
+    if (startDate) paymentFilter.createdAt.$gte = new Date(startDate);
+    if (endDate) paymentFilter.createdAt.$lte = new Date(endDate);
+  }
+  
+  // Get all completed payments
+  const allPayments = await Payment.find(paymentFilter)
+    .populate('orderId', 'status finalPrice createdAt')
+    .populate('storeId', 'storeName')
+    .sort({ createdAt: -1 });
+  
+  // Calculate earnings breakdown
+  const totalEarnings = allPayments.reduce((sum, p) => sum + p.storePayoutAmount, 0);
+  const totalRevenue = allPayments.reduce((sum, p) => sum + p.amount, 0);
+  const totalCommission = allPayments.reduce((sum, p) => sum + p.commissionAmount, 0);
+  const totalOrders = allPayments.length;
+  
+  // Calculate pending earnings (eligible but not yet in payout)
+  const pendingPayments = await Payment.find({
+    storeId: storeId ? storeId : { $in: storeIds },
+    status: 'completed',
+    payoutStatus: 'eligible'
+  });
+  const pendingEarnings = pendingPayments.reduce((sum, p) => sum + p.storePayoutAmount, 0);
+  
+  // Get completed payouts
+  const payoutFilter = { 
+    ownerId,
+    storeId: storeId ? storeId : { $in: storeIds },
+    status: 'completed'
+  };
+  const completedPayouts = await Payout.find(payoutFilter)
+    .populate('storeId', 'storeName')
+    .sort({ createdAt: -1 });
+  
+  const totalPayoutsReceived = completedPayouts.reduce((sum, p) => sum + p.netPayoutAmount, 0);
+  const totalPayoutsCount = completedPayouts.length;
+  
+  // Get pending/processing payouts
+  const pendingPayouts = await Payout.find({
+    ownerId,
+    storeId: storeId ? storeId : { $in: storeIds },
+    status: { $in: ['pending', 'approved', 'processing'] }
+  })
+    .populate('storeId', 'storeName')
+    .sort({ createdAt: -1 });
+  
+  const pendingPayoutsAmount = pendingPayouts.reduce((sum, p) => sum + p.netPayoutAmount, 0);
+  
+  // Get recent payments (last 10)
+  const recentPayments = allPayments.slice(0, 10).map(p => ({
+    id: p._id,
+    orderId: p.orderId?._id || p.orderId,
+    storeName: p.storeId?.storeName,
+    amount: p.amount,
+    commission: p.commissionAmount,
+    payout: p.storePayoutAmount,
+    payoutStatus: p.payoutStatus,
+    createdAt: p.createdAt
+  }));
+  
+  // Get earnings by store (if multiple stores)
+  const earningsByStore = [];
+  if (!storeId && stores.length > 1) {
+    for (const store of stores) {
+      const storePayments = await Payment.find({
+        storeId: store._id,
+        status: 'completed'
+      });
+      const storeEarnings = storePayments.reduce((sum, p) => sum + p.storePayoutAmount, 0);
+      const storeRevenue = storePayments.reduce((sum, p) => sum + p.amount, 0);
+      const storeCommission = storePayments.reduce((sum, p) => sum + p.commissionAmount, 0);
+      
+      earningsByStore.push({
+        storeId: store._id,
+        storeName: store.storeName,
+        totalEarnings: storeEarnings,
+        totalRevenue: storeRevenue,
+        totalCommission: storeCommission,
+        orderCount: storePayments.length
+      });
+    }
+  }
+  
+  res.status(200).json({
+    success: true,
+    data: {
+      summary: {
+        totalEarnings, // Total earnings from all completed orders
+        totalRevenue, // Total revenue (before commission)
+        totalCommission, // Total commission deducted
+        totalOrders, // Total completed orders
+        pendingEarnings, // Earnings eligible for payout but not yet in payout
+        totalPayoutsReceived, // Total payouts received
+        totalPayoutsCount, // Number of completed payouts
+        pendingPayoutsAmount, // Amount in pending/processing payouts
+        availableForPayout: pendingEarnings // Same as pendingEarnings for clarity
+      },
+      payouts: {
+        completed: completedPayouts.map(p => ({
+          id: p._id,
+          storeName: p.storeId?.storeName,
+          netPayoutAmount: p.netPayoutAmount,
+          totalAmount: p.totalAmount,
+          commissionDeducted: p.commissionDeducted,
+          orderCount: p.orderCount,
+          periodStart: p.periodStart,
+          periodEnd: p.periodEnd,
+          status: p.status,
+          createdAt: p.createdAt,
+          processedAt: p.processedAt
+        })),
+        pending: pendingPayouts.map(p => ({
+          id: p._id,
+          storeName: p.storeId?.storeName,
+          netPayoutAmount: p.netPayoutAmount,
+          totalAmount: p.totalAmount,
+          commissionDeducted: p.commissionDeducted,
+          orderCount: p.orderCount,
+          periodStart: p.periodStart,
+          periodEnd: p.periodEnd,
+          status: p.status,
+          createdAt: p.createdAt
+        }))
+      },
+      recentPayments,
+      earningsByStore: earningsByStore.length > 0 ? earningsByStore : undefined
+    }
+  });
+});
+
 // ✅ Get earnings statement
 exports.getEarningsStatement = asyncHandler(async (req, res, next) => {
   const ownerId = req.user._id;

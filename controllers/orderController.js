@@ -83,6 +83,7 @@
 // });
 const mongoose = require('mongoose');
 const Order = require("../models/orderSchema");
+const Promotion = require('../models/promotion');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/appError');   
 const User = require("../models/user");
@@ -195,17 +196,58 @@ exports.createOrder = asyncHandler(async(req, res, next) => {
         return next(new AppError('Order flagged for review due to suspicious activity. Please contact support.', 403));
     }
     
+    // ✅ VALIDATE PROMOTION CODE IF PROVIDED
+    let validatedDiscount = discount || 0;
+    let validatedPromoCode = promoCode || null;
+    
+    if (promoCode) {
+        // Calculate order amount before discount for validation
+        const itemsTotal = items.reduce((sum, item) => {
+            return sum + (Number(item.itemPrice) || 0) * (Number(item.quantity) || 1);
+        }, 0);
+        
+        // Validate promotion code
+        const promotionResult = await Promotion.findValidByCode(
+            promoCode,
+            userId,
+            itemsTotal, // Use original amount before discount
+            storeId
+        );
+        
+        if (!promotionResult.promotion || promotionResult.reason) {
+            return next(new AppError(
+                promotionResult.reason || 'Invalid or expired promotion code', 
+                400
+            ));
+        }
+        
+        // Recalculate discount using validated promotion
+        validatedDiscount = promotionResult.promotion.calculateDiscount(itemsTotal);
+        validatedPromoCode = promotionResult.promotion.code;
+        
+        // Track promotion usage (will be linked to order after creation)
+        // Note: We'll track usage after order is created to ensure order ID is available
+    }
+    
     // ✅ Force payment method to cash_on_delivery only
     const paymentMethod = 'cash_on_delivery';
+    
+    // Recalculate final price with validated discount
+    const itemsTotal = items.reduce((sum, item) => {
+        return sum + (Number(item.itemPrice) || 0) * (Number(item.quantity) || 1);
+    }, 0);
+    const deliveryCharge = 30; // Default, should be calculated from store
+    const validatedFinalPrice = itemsTotal + deliveryCharge - validatedDiscount;
     
     // Create order with fraud flags in metadata
     const newOrder = await Order.create({
         storeId, 
         userId, 
         items, 
-        discount, 
-        promoCode, 
-        finalPrice, 
+        discount: validatedDiscount, 
+        promoCode: validatedPromoCode,
+        deliveryCharge: deliveryCharge, // Store delivery charge
+        finalPrice: validatedFinalPrice, 
         deliveryAddress,
         paymentMethod, // ✅ Only cash on delivery
         metadata: {
@@ -214,24 +256,52 @@ exports.createOrder = asyncHandler(async(req, res, next) => {
         }
     });
     
+    // ✅ Track promotion usage after order creation
+    if (validatedPromoCode && promoCode) {
+        try {
+            const promotion = await Promotion.findOne({ code: validatedPromoCode });
+            if (promotion) {
+                const itemsTotal = items.reduce((sum, item) => {
+                    return sum + (Number(item.itemPrice) || 0) * (Number(item.quantity) || 1);
+                }, 0);
+                await promotion.apply(userId, newOrder._id, itemsTotal, validatedDiscount);
+            }
+        } catch (promoError) {
+            // Log error but don't fail order creation
+            console.error('Error tracking promotion usage:', promoError);
+        }
+    }
+    
     // ✅ Automatically create payment record for the order
     try {
         const store = await Store.findById(storeId);
         const commissionRate = store?.commissionRate || 10;
         
+        // ✅ FIXED: Calculate commission on final amount (what customer actually pays)
+        // Commission is calculated on the amount the customer pays, not the original amount
+        const originalAmount = itemsTotal + deliveryCharge; // Amount before discount
+        const finalAmount = newOrder.finalPrice; // Amount after discount (what customer pays)
+        
         const payment = await Payment.create({
             orderId: newOrder._id,
             userId: newOrder.userId,
             storeId: newOrder.storeId,
-            amount: newOrder.finalPrice,
+            amount: finalAmount, // Store final amount (what customer pays)
             commissionRate,
             paymentMethod: 'cash_on_delivery', // ✅ Only COD
             status: 'pending', // COD payments are pending until delivery
-            payoutStatus: 'pending'
+            payoutStatus: 'pending',
+            metadata: {
+                originalAmount, // Store original amount for reference
+                discountAmount: validatedDiscount
+            }
         });
         
-        // Calculate commission and payout
-        payment.calculateCommission(commissionRate);
+        // ✅ FIXED: Calculate commission on final amount (what customer pays)
+        // Commission = (finalAmount × commissionRate) / 100
+        // Store Payout = finalAmount - commissionAmount
+        payment.commissionAmount = (finalAmount * commissionRate) / 100;
+        payment.storePayoutAmount = finalAmount - payment.commissionAmount;
         await payment.save();
         
         // Link payment to order
@@ -468,6 +538,11 @@ exports.updateOrderStatus = asyncHandler(async (req, res, next) => {
     // ✅ Special handling: When order is Delivered, mark COD payment as completed
     if (status === 'Delivered') {
         try {
+            // Set deliveredTime
+            updatedOrder.deliveredTime = new Date();
+            await updatedOrder.save();
+            
+            // Update payment status
             const payment = await Payment.findOne({ orderId: updatedOrder._id });
             if (payment && payment.paymentMethod === 'cash_on_delivery' && payment.status === 'pending') {
                 payment.status = 'completed';
@@ -476,6 +551,27 @@ exports.updateOrderStatus = asyncHandler(async (req, res, next) => {
             }
         } catch (paymentError) {
             console.error('Error updating payment status on delivery:', paymentError);
+            // Don't fail the order status update if payment update fails
+        }
+    }
+    
+    // ✅ Special handling: When order is Rejected, cancel payment
+    if (status === 'Rejected') {
+        try {
+            const payment = await Payment.findOne({ orderId: updatedOrder._id });
+            if (payment) {
+                // If payment was completed, process refund
+                if (payment.status === 'completed') {
+                    await payment.processRefund(rejectionReason || 'Order rejected by store');
+                } else {
+                    // If payment is still pending (COD before delivery), mark as cancelled
+                    payment.status = 'cancelled';
+                    payment.payoutStatus = 'cancelled';
+                    await payment.save();
+                }
+            }
+        } catch (paymentError) {
+            console.error('Error updating payment status on rejection:', paymentError);
             // Don't fail the order status update if payment update fails
         }
     }
@@ -576,40 +672,98 @@ exports.createOrderFromCart = asyncHandler(async (req, res, next) => {
 
     // ✅ FIXED: Recalculate delivery charge and final amount to ensure delivery fees are included
     const amounts = await calculateFinalAmount(cart);
-    const finalPrice = amounts.finalAmount; // This includes delivery charges
+    const itemsTotal = amounts.itemsTotal;
+    const deliveryCharge = amounts.deliveryCharge;
+    const cartDiscount = cart.discount?.discountAmount || 0;
+    const cartPromoCode = cart.discount?.code || null;
+    
+    // ✅ VALIDATE PROMOTION CODE IF PROVIDED
+    let validatedDiscount = cartDiscount;
+    let validatedPromoCode = cartPromoCode;
+    
+    if (cartPromoCode) {
+        const originalAmount = itemsTotal + deliveryCharge; // Amount before discount
+        
+        // Validate promotion code
+        const promotionResult = await Promotion.findValidByCode(
+            cartPromoCode,
+            userId,
+            originalAmount,
+            cart.storeId
+        );
+        
+        if (!promotionResult.promotion || promotionResult.reason) {
+            return next(new AppError(
+                promotionResult.reason || 'Invalid or expired promotion code', 
+                400
+            ));
+        }
+        
+        // Recalculate discount using validated promotion
+        validatedDiscount = promotionResult.promotion.calculateDiscount(originalAmount);
+        validatedPromoCode = promotionResult.promotion.code;
+    }
+    
+    const finalPrice = itemsTotal + deliveryCharge - validatedDiscount;
 
     // Create order with delivery charge stored separately for transparency
     const newOrder = await Order.create({
         storeId: cart.storeId,
         userId,
         items,
-        deliveryCharge: amounts.deliveryCharge, // Store delivery charge separately
-        discount: cart.discount?.discountAmount || 0,
-        promoCode: cart.discount?.code || null,
+        deliveryCharge: deliveryCharge, // Store delivery charge separately
+        discount: validatedDiscount,
+        promoCode: validatedPromoCode,
         finalPrice,
         deliveryAddress,
         paymentMethod: 'cash_on_delivery', // ✅ Only COD
         status: "Pending"
     });
     
+    // ✅ Track promotion usage after order creation
+    if (validatedPromoCode && cartPromoCode) {
+        try {
+            const promotion = await Promotion.findOne({ code: validatedPromoCode });
+            if (promotion) {
+                const originalAmount = itemsTotal + deliveryCharge;
+                await promotion.apply(userId, newOrder._id, originalAmount, validatedDiscount);
+            }
+        } catch (promoError) {
+            // Log error but don't fail order creation
+            console.error('Error tracking promotion usage:', promoError);
+        }
+    }
+    
     // ✅ Automatically create payment record for the order
     try {
         const store = await Store.findById(cart.storeId);
         const commissionRate = store?.commissionRate || 10;
         
+        // ✅ FIXED: Calculate commission on final amount (what customer actually pays)
+        // Commission is calculated on the amount the customer pays, not the original amount
+        const originalAmount = itemsTotal + deliveryCharge; // Amount before discount
+        const finalAmount = newOrder.finalPrice; // Amount after discount (what customer pays)
+        
         const payment = await Payment.create({
             orderId: newOrder._id,
             userId: newOrder.userId,
             storeId: newOrder.storeId,
-            amount: newOrder.finalPrice,
+            amount: finalAmount, // Store final amount (what customer pays)
             commissionRate,
             paymentMethod: 'cash_on_delivery', // ✅ Only COD
             status: 'pending', // COD payments are pending until delivery
-            payoutStatus: 'pending'
+            payoutStatus: 'pending',
+            metadata: {
+                originalAmount, // Store original amount for reference
+                discountAmount: validatedDiscount
+            }
         });
         
-        // Calculate commission and payout
-        payment.calculateCommission(commissionRate);
+        // ✅ FIXED: Calculate commission on final amount (what customer pays)
+        // Commission = (finalAmount × commissionRate) / 100
+        // Store Payout = finalAmount - commissionAmount
+        payment.commissionAmount = (finalAmount * commissionRate) / 100;
+        payment.storePayoutAmount = finalAmount - payment.commissionAmount;
         await payment.save();
         
         // Link payment to order
@@ -740,6 +894,25 @@ exports.cancelOrder = asyncHandler(async (req, res, next) => {
     order.cancelledTime = new Date();
     
     await order.save();
+
+    // ✅ Update payment status when order is cancelled
+    try {
+        const payment = await Payment.findOne({ orderId: order._id });
+        if (payment) {
+            // If payment was completed, process refund
+            if (payment.status === 'completed') {
+                await payment.processRefund(cancellationReason || 'Order cancelled by customer');
+            } else {
+                // If payment is still pending (COD before delivery), mark as cancelled
+                payment.status = 'cancelled';
+                payment.payoutStatus = 'cancelled';
+                await payment.save();
+            }
+        }
+    } catch (paymentError) {
+        console.error('Error updating payment status on cancellation:', paymentError);
+        // Don't fail the order cancellation if payment update fails
+    }
 
     // ✅ Send real-time notifications via Socket.io
     // Notify store owner about cancellation
@@ -935,11 +1108,59 @@ exports.updateOrderStatusAdmin = asyncHandler(async (req, res, next) => {
     ).populate('userId', 'name email').populate('storeId', 'storeName');
     if (!updated) return next(new AppError('Order not found', 404));
     
+    // ✅ Special handling: When order is Delivered, mark COD payment as completed
+    if (status === 'Delivered') {
+        try {
+            // Set deliveredTime
+            updated.deliveredTime = new Date();
+            await updated.save();
+            
+            // Update payment status
+            const payment = await Payment.findOne({ orderId: updated._id });
+            if (payment && payment.paymentMethod === 'cash_on_delivery' && payment.status === 'pending') {
+                payment.status = 'completed';
+                await payment.markEligibleForPayout(); // Mark as eligible for payout
+                await payment.save();
+            }
+        } catch (paymentError) {
+            console.error('Error updating payment status on delivery:', paymentError);
+            // Don't fail the order status update if payment update fails
+        }
+    }
+    
+    // ✅ Special handling: When order is Rejected, cancel payment
+    if (status === 'Rejected') {
+        try {
+            const payment = await Payment.findOne({ orderId: updated._id });
+            if (payment) {
+                // If payment was completed, process refund
+                if (payment.status === 'completed') {
+                    await payment.processRefund('Order rejected by store');
+                } else {
+                    // If payment is still pending (COD before delivery), mark as cancelled
+                    payment.status = 'cancelled';
+                    payment.payoutStatus = 'cancelled';
+                    await payment.save();
+                }
+            }
+        } catch (paymentError) {
+            console.error('Error updating payment status on rejection:', paymentError);
+            // Don't fail the order status update if payment update fails
+        }
+    }
+    
     // ✅ Send real-time notifications via Socket.io
     // Notify customer about status update
     notificationService.notifyCustomerOrderUpdate(updated, status).catch(err => {
         console.error('Error notifying customer:', err);
     });
+    
+    // Special handling: Notify admin as delivery boy when order is OutForDelivery
+    if (status === 'OutForDelivery') {
+        notificationService.notifyAdminDeliveryAssignment(updated).catch(err => {
+            console.error('Error notifying admin about delivery assignment:', err);
+        });
+    }
     
     res.status(200).json({ 
         success: true, 
@@ -957,6 +1178,7 @@ exports.updateOrderStatusAdmin = asyncHandler(async (req, res, next) => {
             status: updated.status,
             rejectionReason: updated.rejectionReason,
             cancellationReason: updated.cancellationReason,
+            deliveredTime: updated.deliveredTime,
             createdAt: updated.createdAt,
             updatedAt: updated.updatedAt,
             customerName: updated.userId?.name,

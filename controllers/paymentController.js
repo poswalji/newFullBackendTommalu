@@ -29,20 +29,33 @@ exports.createPayment = asyncHandler(async (req, res, next) => {
   // Get commission rate from store
   const commissionRate = order.storeId.commissionRate || 10;
   
+  // ✅ FIXED: Calculate commission on final amount (what customer actually pays)
+  // Commission is calculated on the amount the customer pays, not the original amount
+  const originalAmount = order.finalPrice + (order.discount || 0);
+  const finalAmount = order.finalPrice; // Amount after discount (what customer pays)
+  
   // Create payment (COD only)
   const payment = await Payment.create({
     orderId,
     userId: order.userId._id || order.userId,
     storeId: order.storeId._id || order.storeId,
-    amount: order.finalPrice,
+    amount: finalAmount, // Store final amount (what customer pays)
     commissionRate,
     paymentMethod: 'cash_on_delivery', // ✅ Only COD
     paymentGateway: null, // No gateway for COD
-    status: 'pending' // COD payments are pending until delivery
+    status: 'pending', // COD payments are pending until delivery
+    payoutStatus: 'pending',
+    metadata: {
+      originalAmount, // Store original amount for reference
+      discountAmount: order.discount || 0
+    }
   });
   
-  // Calculate commission and payout
-  payment.calculateCommission(commissionRate);
+  // ✅ FIXED: Calculate commission on final amount (what customer pays)
+  // Commission = (finalAmount × commissionRate) / 100
+  // Store Payout = finalAmount - commissionAmount
+  payment.commissionAmount = (finalAmount * commissionRate) / 100;
+  payment.storePayoutAmount = finalAmount - payment.commissionAmount;
   await payment.save();
   
   res.status(201).json({

@@ -7,6 +7,7 @@ const { protect, restrictTo } = require('../middleware/authMiddleware');
 router.use(protect);
 
 // Store Owner routes
+router.get('/store-owner/dashboard', restrictTo('storeOwner'), payoutController.getEarningsDashboard);
 router.get('/store-owner/my-payouts', restrictTo('storeOwner'), payoutController.getMyPayouts);
 router.get('/store-owner/payouts/:id', restrictTo('storeOwner'), payoutController.getPayoutById);
 router.post('/store-owner/request-early', restrictTo('storeOwner'), payoutController.requestEarlyPayout);

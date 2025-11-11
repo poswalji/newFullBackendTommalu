@@ -1010,12 +1010,35 @@ exports.listPayouts = asyncHandler(async (req, res, next) => {
 
 // POST /api/admin/payouts/:id/approve
 exports.approvePayout = asyncHandler(async (req, res, next) => {
-  const payout = await Payout.findById(req.params.id);
+  const payout = await Payout.findById(req.params.id)
+    .populate('storeId', 'storeName')
+    .populate('ownerId', 'name email');
   if (!payout) {
     return next(new AppError('Payout not found', 404));
   }
   
   await payout.approve(req.user._id);
+  
+  // ✅ FIXED: Send notification to store owner about payout approval
+  try {
+    const notificationService = require('../services/notificationService');
+    await notificationService.createNotification({
+      userId: payout.ownerId._id || payout.ownerId,
+      title: 'Payout Approved',
+      message: `Your payout of ₹${payout.netPayoutAmount} has been approved and will be processed soon`,
+      type: 'payout_approved',
+      relatedId: payout._id,
+      relatedModel: 'Payout',
+      metadata: {
+        payoutId: payout._id,
+        netPayoutAmount: payout.netPayoutAmount,
+        storeId: payout.storeId._id || payout.storeId
+      }
+    });
+  } catch (notifError) {
+    console.error('Error sending payout approval notification:', notifError);
+    // Don't fail payout approval if notification fails
+  }
   
   res.json({
     success: true,
@@ -1028,7 +1051,9 @@ exports.approvePayout = asyncHandler(async (req, res, next) => {
 exports.completePayout = asyncHandler(async (req, res, next) => {
   const { transferId, transferResponse } = req.body;
   
-  const payout = await Payout.findById(req.params.id);
+  const payout = await Payout.findById(req.params.id)
+    .populate('storeId', 'storeName')
+    .populate('ownerId', 'name email');
   if (!payout) {
     return next(new AppError('Payout not found', 404));
   }
@@ -1039,11 +1064,33 @@ exports.completePayout = asyncHandler(async (req, res, next) => {
   
   await payout.complete(transferId, transferResponse);
   
-  // Update payment payout statuses
+  // ✅ FIXED: Update payment payout statuses to 'completed' and set payout date
   await Payment.updateMany(
     { _id: { $in: payout.paymentIds } },
     { payoutStatus: 'completed', payoutDate: new Date() }
   );
+  
+  // ✅ FIXED: Send notification to store owner about payout completion
+  try {
+    const notificationService = require('../services/notificationService');
+    await notificationService.createNotification({
+      userId: payout.ownerId._id || payout.ownerId,
+      title: 'Payout Completed',
+      message: `Your payout of ₹${payout.netPayoutAmount} has been completed successfully`,
+      type: 'payout_completed',
+      relatedId: payout._id,
+      relatedModel: 'Payout',
+      metadata: {
+        payoutId: payout._id,
+        netPayoutAmount: payout.netPayoutAmount,
+        transferId,
+        storeId: payout.storeId._id || payout.storeId
+      }
+    });
+  } catch (notifError) {
+    console.error('Error sending payout completion notification:', notifError);
+    // Don't fail payout completion if notification fails
+  }
   
   res.json({
     success: true,
@@ -1069,6 +1116,24 @@ exports.generatePayout = asyncHandler(async (req, res, next) => {
   
   if (eligiblePayments.length === 0) {
     return next(new AppError('No eligible payments found for this period', 400));
+  }
+  
+  // ✅ FIXED: Check if payments are already included in a payout
+  const eligiblePaymentIds = eligiblePayments.map(p => p._id);
+  const existingPayouts = await Payout.find({
+    paymentIds: { $in: eligiblePaymentIds }
+  });
+  
+  if (existingPayouts.length > 0) {
+    const alreadyIncludedPayments = existingPayouts.flatMap(p => p.paymentIds);
+    const duplicatePaymentIds = eligiblePaymentIds.filter(id => 
+      alreadyIncludedPayments.some(existingId => existingId.toString() === id.toString())
+    );
+    
+    return next(new AppError(
+      `Some payments are already included in existing payouts. Duplicate payment IDs: ${duplicatePaymentIds.slice(0, 5).join(', ')}`,
+      400
+    ));
   }
   
   // Get store and owner
@@ -1136,10 +1201,18 @@ exports.cancelOrderAdmin = asyncHandler(async (req, res, next) => {
     return next(new AppError('Order not found', 404));
   }
   
-  // Process refund if payment exists
+  // ✅ Process refund or cancel payment when order is cancelled
   const payment = await Payment.findOne({ orderId: id });
-  if (payment && payment.status === 'completed') {
-    await payment.processRefund(reason || 'Order cancelled by admin');
+  if (payment) {
+    if (payment.status === 'completed') {
+      // If payment was completed, process refund
+      await payment.processRefund(reason || 'Order cancelled by admin');
+    } else {
+      // If payment is still pending (COD before delivery), mark as cancelled
+      payment.status = 'cancelled';
+      payment.payoutStatus = 'cancelled';
+      await payment.save();
+    }
   }
   
   res.json({
