@@ -179,14 +179,16 @@ describe('Customer API Tests', () => {
 
   describe('POST /api/customer/orders/from-cart - Create Order from Cart', () => {
     test('TC-CUST-006: Should create order from cart successfully', async () => {
-      // Create cart first
+      // Create cart first with required fields
       const cart = await Cart.create({
         userId: customerId,
         storeId: storeId,
         items: [{
           menuItemId: menuItemId,
           quantity: 1,
-          price: 100
+          price: 100,
+          itemName: 'Test Item',
+          image: '/placeholder-image.jpg'
         }],
         totalItems: 1,
         totalAmount: 100,

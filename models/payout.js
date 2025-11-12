@@ -125,6 +125,9 @@ payoutSchema.methods.calculateTotals = function(payments) {
 
 // Method to approve payout
 payoutSchema.methods.approve = function(adminId) {
+  if (this.status !== 'pending') {
+    throw new Error(`Payout must be pending to approve. Current status: ${this.status}`);
+  }
   this.status = 'approved';
   this.processedBy = adminId;
   return this.save();

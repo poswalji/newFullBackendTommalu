@@ -1017,6 +1017,10 @@ exports.approvePayout = asyncHandler(async (req, res, next) => {
     return next(new AppError('Payout not found', 404));
   }
   
+  if (payout.status !== 'pending') {
+    return next(new AppError(`Payout must be pending to approve. Current status: ${payout.status}`, 400));
+  }
+  
   await payout.approve(req.user._id);
   
   // ✅ FIXED: Send notification to store owner about payout approval

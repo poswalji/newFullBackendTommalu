@@ -255,7 +255,9 @@ describe('Admin API Tests', () => {
 
       expect(res.body.success).toBe(true);
       res.body.data.forEach(payment => {
-        expect(payment.storeId.toString()).toBe(storeId.toString());
+        // storeId is populated, so it could be an object or string
+        const paymentStoreId = payment.storeId?._id || payment.storeId;
+        expect(paymentStoreId.toString()).toBe(storeId.toString());
       });
     });
   });
@@ -322,6 +324,77 @@ describe('Admin API Tests', () => {
     });
 
     test('TC-ADMIN-012: Should prevent duplicate payments in payout', async () => {
+      // Create a separate store for this test to avoid conflicts with other tests
+      const testStore = await Store.create({
+        ownerId: storeOwnerId,
+        storeName: 'Test Store for Duplicate',
+        address: '789 Test St',
+        phone: '1234567894',
+        category: 'Restaurant',
+        commissionRate: 10,
+        status: 'active',
+        isOpen: true,
+        available: true
+      });
+
+      const testMenuItem = await MenuItem.create({
+        storeId: testStore._id,
+        name: 'Test Item Duplicate',
+        price: 100,
+        isAvailable: true
+      });
+
+      // Create fresh payments for this test that aren't in any payout
+      const order1 = await Order.create({
+        storeId: testStore._id,
+        userId: customerId,
+        items: [{ menuItemId: testMenuItem._id, itemName: 'Test Item Duplicate', quantity: 1, itemPrice: 100 }],
+        finalPrice: 130,
+        deliveryAddress: { street: '123 Test St', city: 'Test City', pincode: '123456' },
+        status: 'Delivered'
+      });
+
+      const order2 = await Order.create({
+        storeId: testStore._id,
+        userId: customerId,
+        items: [{ menuItemId: testMenuItem._id, itemName: 'Test Item Duplicate', quantity: 1, itemPrice: 100 }],
+        finalPrice: 130,
+        deliveryAddress: { street: '123 Test St', city: 'Test City', pincode: '123456' },
+        status: 'Delivered'
+      });
+
+      // Set createdAt to ensure they're within the period
+      const paymentDate = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000); // 3 days ago
+      const payment1 = await Payment.create({
+        orderId: order1._id,
+        userId: customerId,
+        storeId: testStore._id,
+        amount: 130,
+        commissionRate: 10,
+        paymentMethod: 'cash_on_delivery',
+        status: 'completed',
+        payoutStatus: 'eligible',
+        createdAt: paymentDate
+      });
+      payment1.commissionAmount = 13;
+      payment1.storePayoutAmount = 117;
+      await payment1.save();
+
+      const payment2 = await Payment.create({
+        orderId: order2._id,
+        userId: customerId,
+        storeId: testStore._id,
+        amount: 130,
+        commissionRate: 10,
+        paymentMethod: 'cash_on_delivery',
+        status: 'completed',
+        payoutStatus: 'eligible',
+        createdAt: paymentDate
+      });
+      payment2.commissionAmount = 13;
+      payment2.storePayoutAmount = 117;
+      await payment2.save();
+
       // First payout
       const periodStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       const periodEnd = new Date();
@@ -330,18 +403,20 @@ describe('Admin API Tests', () => {
         .post('/api/admin/payouts/generate')
         .set('Authorization', `Bearer ${adminToken}`)
         .send({
-          storeId: storeId,
+          storeId: testStore._id,
           periodStart: periodStart.toISOString(),
           periodEnd: periodEnd.toISOString()
         })
         .expect(201);
+
+      expect(res1.body.success).toBe(true);
 
       // Try to create second payout with same payments
       const res2 = await request(app)
         .post('/api/admin/payouts/generate')
         .set('Authorization', `Bearer ${adminToken}`)
         .send({
-          storeId: storeId,
+          storeId: testStore._id,
           periodStart: periodStart.toISOString(),
           periodEnd: periodEnd.toISOString()
         })

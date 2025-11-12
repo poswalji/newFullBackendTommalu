@@ -10,6 +10,7 @@ const Cart = require('../../models/cartSchema');
 const Store = require('../../models/store');
 const User = require('../../models/user');
 const MenuItem = require('../../models/menuItems');
+const Promotion = require('../../models/promotion');
 
 describe('Cart API Tests', () => {
   let customerToken, customerId;
@@ -76,6 +77,7 @@ describe('Cart API Tests', () => {
 
   afterAll(async () => {
     await Cart.deleteMany({});
+    await Promotion.deleteMany({});
     await MenuItem.deleteMany({});
     await Store.deleteMany({});
     await User.deleteMany({});
@@ -98,6 +100,9 @@ describe('Cart API Tests', () => {
     });
 
     test('TC-CART-002: Should update quantity if item already in cart', async () => {
+      // Clear cart first to ensure clean state
+      await Cart.deleteMany({ userId: customerId });
+      
       // Add item first
       await request(app)
         .post('/api/cart/add')
@@ -257,6 +262,24 @@ describe('Cart API Tests', () => {
 
   describe('POST /api/cart/apply-discount - Apply Discount', () => {
     test('TC-CART-010: Should apply discount to cart', async () => {
+      // Create a promotion first
+      const promotion = await Promotion.create({
+        code: 'TEST10',
+        name: 'Test Promotion',
+        type: 'percentage',
+        discountValue: 10,
+        minOrderAmount: 0,
+        maxDiscount: 100,
+        startDate: new Date(Date.now() - 24 * 60 * 60 * 1000), // Started yesterday
+        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Ends in 30 days
+        validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Same as endDate
+        isActive: true,
+        applicableTo: 'all',
+        usageLimit: 1000,
+        usedCount: 0,
+        createdBy: storeOwnerId // Required field
+      });
+
       // Add items first
       await request(app)
         .post('/api/cart/add')
@@ -271,13 +294,15 @@ describe('Cart API Tests', () => {
         .post('/api/cart/apply-discount')
         .set('Authorization', `Bearer ${customerToken}`)
         .send({
-          code: 'TEST10',
-          discountAmount: 20
+          code: 'TEST10'
         })
         .expect(200);
 
       expect(res.body.success).toBe(true);
       expect(res.body.data.discount).toBeDefined();
+      
+      // Cleanup
+      await Promotion.deleteMany({ code: 'TEST10' });
     });
   });
 
