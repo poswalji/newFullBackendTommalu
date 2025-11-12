@@ -112,7 +112,11 @@ exports.createOrder = asyncHandler(async(req, res, next) => {
         return next(new AppError("Menu item not found", 404));
     }
 
-    const storeId = menuItem.storeId;
+    // Ensure storeId is an ObjectId, not a populated object
+    const storeId = menuItem.storeId?._id || menuItem.storeId;
+    if (!storeId) {
+        return next(new AppError('Store ID not found for menu item', 400));
+    }
 
     // Verify user is a customer
     const user = await User.findById(userId);
@@ -662,12 +666,39 @@ exports.createOrderFromCart = asyncHandler(async (req, res, next) => {
         return next(new AppError('Invalid cart data', 400));
     }
 
-    // ✅ FIXED: Use menuItemId (schema ke according)
-    const items = cart.items.map(item => ({
-        menuItemId: item.menuItemId._id || item.menuItemId,  // Handle both populated and non-populated cases
-        itemName: item.menuItemId?.name || item.itemName,
-        quantity: item.quantity,
-        itemPrice: item.menuItemId?.price || item.price
+    // ✅ FIXED: Use menuItemId (schema ke according) and ensure all required fields
+    // If menuItemId is not populated, fetch the menu item to get name and image
+    const items = await Promise.all(cart.items.map(async (item) => {
+        let menuItem = item.menuItemId;
+        const menuItemId = menuItem?._id || menuItem || item.menuItemId;
+        
+        // If menuItem is not populated (just an ObjectId), fetch it
+        if (!menuItem || typeof menuItem === 'object' && !menuItem.name) {
+            const Menu = require('../models/menuItems');
+            menuItem = await Menu.findById(menuItemId);
+            if (!menuItem) {
+                throw new Error(`Menu item not found: ${menuItemId}`);
+            }
+        }
+        
+        const itemName = menuItem?.name || item.itemName;
+        const itemPrice = menuItem?.price || item.price;
+        const image = menuItem?.image || (Array.isArray(menuItem?.images) && menuItem.images[0]) || item.image || '/placeholder-image.jpg';
+        
+        if (!itemName) {
+            throw new Error(`Item name is missing for menuItemId: ${menuItemId}`);
+        }
+        if (!image) {
+            throw new Error(`Item image is missing for menuItemId: ${menuItemId}`);
+        }
+        
+        return {
+            menuItemId,
+            itemName,
+            quantity: item.quantity,
+            itemPrice,
+            image
+        };
     }));
 
     // ✅ FIXED: Recalculate delivery charge and final amount to ensure delivery fees are included
@@ -873,7 +904,7 @@ exports.createOrderFromCart = asyncHandler(async (req, res, next) => {
 // ✅ CANCEL ORDER (Customer)
 exports.cancelOrder = asyncHandler(async (req, res, next) => {
     const orderId = req.params.id || req.params.orderId; // Support both :id and :orderId
-    const { cancellationReason } = req.body;
+    const { cancellationReason } = req.body || {};
 
     const order = await Order.findOne({
         _id: orderId,

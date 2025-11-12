@@ -17,11 +17,9 @@ exports.getNotifications = asyncHandler(async (req, res, next) => {
 
   res.status(200).json({
     success: true,
-    data: {
-      notifications: result.notifications,
-      total: result.total,
-      unreadCount: result.unreadCount
-    }
+    data: result.notifications,
+    total: result.total,
+    unreadCount: result.unreadCount
   });
 });
 

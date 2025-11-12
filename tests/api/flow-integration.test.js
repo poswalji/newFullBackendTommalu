@@ -264,7 +264,7 @@ describe('Complete Flow Integration Tests', () => {
 
       // Step 2: Store owner rejects order
       const rejectRes = await request(app)
-        .put(`/api/orders/${orderId}/status`)
+        .patch(`/api/store-owner/orders/${orderId}/status`)
         .set('Authorization', `Bearer ${storeOwnerToken}`)
         .send({
           status: 'Rejected',
@@ -388,19 +388,19 @@ describe('Complete Flow Integration Tests', () => {
 
         // Mark as delivered
         await request(app)
-          .put(`/api/orders/${orderRes.body.data.id}/status`)
+          .patch(`/api/store-owner/orders/${orderRes.body.data.id}/status`)
           .set('Authorization', `Bearer ${storeOwnerToken}`)
           .send({ status: 'Confirmed' })
           .expect(200);
 
         await request(app)
-          .put(`/api/orders/${orderRes.body.data.id}/status`)
+          .patch(`/api/store-owner/orders/${orderRes.body.data.id}/status`)
           .set('Authorization', `Bearer ${storeOwnerToken}`)
           .send({ status: 'OutForDelivery' })
           .expect(200);
 
         await request(app)
-          .put(`/api/orders/${orderRes.body.data.id}/status`)
+          .patch(`/api/store-owner/orders/${orderRes.body.data.id}/status`)
           .set('Authorization', `Bearer ${storeOwnerToken}`)
           .send({ status: 'Delivered' })
           .expect(200);

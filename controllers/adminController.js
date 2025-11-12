@@ -1142,17 +1142,24 @@ exports.generatePayout = asyncHandler(async (req, res, next) => {
     return next(new AppError('Store not found', 404));
   }
   
-  // Create payout
+  // Calculate totals first
+  const totalAmount = eligiblePayments.reduce((sum, payment) => sum + payment.amount, 0);
+  const commissionDeducted = eligiblePayments.reduce((sum, payment) => sum + payment.commissionAmount, 0);
+  const netPayoutAmount = totalAmount - commissionDeducted;
+  
+  // Create payout with calculated totals
   const payout = await Payout.create({
     storeId,
     ownerId: store.ownerId,
     periodStart: new Date(periodStart),
     periodEnd: new Date(periodEnd),
-    status: 'pending'
+    status: 'pending',
+    totalAmount,
+    commissionDeducted,
+    netPayoutAmount,
+    orderCount: eligiblePayments.length,
+    paymentIds: eligiblePayments.map(p => p._id)
   });
-  
-  payout.calculateTotals(eligiblePayments);
-  await payout.save();
   
   res.status(201).json({
     success: true,
