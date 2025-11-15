@@ -56,8 +56,7 @@ const payoutSchema = new mongoose.Schema({
   status: {
     type: String,
     enum: ['pending', 'approved', 'processing', 'completed', 'failed', 'cancelled'],
-    default: 'pending',
-    index: true
+    default: 'pending'
   },
   
   // Bank Details (snapshot at payout time)

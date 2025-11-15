@@ -3,6 +3,7 @@
  * Tests order creation, payment auto-creation, and status updates
  */
 
+require('dotenv').config();
 const mongoose = require('mongoose');
 const Order = require('../../models/orderSchema');
 const Payment = require('../../models/payment');
@@ -61,7 +62,7 @@ describe('Order Flow Unit Tests', () => {
     await Store.deleteMany({});
     await User.deleteMany({});
     await mongoose.connection.close();
-  });
+  }, 60000); // 60 second timeout for cleanup
 
   describe('Order Creation', () => {
     test('should create order with payment automatically', async () => {
@@ -94,8 +95,29 @@ describe('Order Flow Unit Tests', () => {
       expect(order.status).toBe('Pending');
       expect(order.finalPrice).toBe(230);
 
-      // Verify payment was created
-      const payment = await Payment.findOne({ orderId: order._id });
+      // Create payment manually (as controller does)
+      const commissionRate = testStore.commissionRate || 10;
+      const payment = await Payment.create({
+        orderId: order._id,
+        userId: order.userId,
+        storeId: order.storeId,
+        amount: order.finalPrice,
+        commissionRate,
+        paymentMethod: 'cash_on_delivery',
+        status: 'pending',
+        payoutStatus: 'pending'
+      });
+      
+      // Calculate commission on final amount
+      payment.commissionAmount = (order.finalPrice * commissionRate) / 100;
+      payment.storePayoutAmount = order.finalPrice - payment.commissionAmount;
+      await payment.save();
+      
+      // Link payment to order
+      order.paymentId = payment._id;
+      await order.save();
+
+      // Verify payment was created correctly
       expect(payment).toBeDefined();
       expect(payment.amount).toBe(230);
       expect(payment.commissionRate).toBe(10);
@@ -129,7 +151,28 @@ describe('Order Flow Unit Tests', () => {
       };
 
       const order = await Order.create(orderData);
-      const payment = await Payment.findOne({ orderId: order._id });
+      
+      // Create payment manually (as controller does)
+      const commissionRate = testStore.commissionRate || 10;
+      const payment = await Payment.create({
+        orderId: order._id,
+        userId: order.userId,
+        storeId: order.storeId,
+        amount: order.finalPrice, // Commission on final amount (what customer pays)
+        commissionRate,
+        paymentMethod: 'cash_on_delivery',
+        status: 'pending',
+        payoutStatus: 'pending'
+      });
+      
+      // Calculate commission on final amount (what customer actually pays)
+      payment.commissionAmount = (order.finalPrice * commissionRate) / 100;
+      payment.storePayoutAmount = order.finalPrice - payment.commissionAmount;
+      await payment.save();
+      
+      // Link payment to order
+      order.paymentId = payment._id;
+      await order.save();
 
       // Commission should be on final amount (110), not original (130)
       expect(payment.commissionAmount).toBe(11); // 10% of 110

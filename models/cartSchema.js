@@ -76,7 +76,6 @@ const cartSchema = new mongoose.Schema(
       expiresAt: {
          type: Date,
          default: () => new Date(+new Date() + 7 * 24 * 60 * 60 * 1000), // 7 days
-         index: { expires: '7d' },
       },
    },
    {
@@ -86,5 +85,6 @@ const cartSchema = new mongoose.Schema(
 
 // Index for better performance
 cartSchema.index({ userId: 1 });
-cartSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+// TTL index for cart expiry (7 days = 604800 seconds)
+cartSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 604800 });
 module.exports = mongoose.model('Cart', cartSchema);

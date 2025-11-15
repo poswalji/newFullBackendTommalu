@@ -3,6 +3,15 @@
  * Configures test environment, database connection, and cleanup
  */
 
+// Mock email service to prevent actual email sending during tests
+jest.mock('../utils/emailService', () => ({
+  sendVerificationEmail: jest.fn().mockResolvedValue(true),
+  sendOrderTrackingEmail: jest.fn().mockResolvedValue(true),
+  sendNewOrderEmailToStoreOwner: jest.fn().mockResolvedValue(true),
+  sendDeliveryAssignmentEmail: jest.fn().mockResolvedValue(true),
+  sendPasswordResetEmail: jest.fn().mockResolvedValue(true),
+}));
+
 const mongoose = require('mongoose');
 
 // Use test database or append _test to the database name

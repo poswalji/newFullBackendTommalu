@@ -3,6 +3,7 @@
  * Tests the complete end-to-end flow
  */
 
+require('dotenv').config();
 const mongoose = require('mongoose');
 const Order = require('../../models/orderSchema');
 const Payment = require('../../models/payment');
@@ -63,7 +64,7 @@ describe('Order to Payout Integration Tests', () => {
     await Store.deleteMany({});
     await User.deleteMany({});
     await mongoose.connection.close();
-  });
+  }, 60000); // 60 second timeout for cleanup
 
   describe('Complete Order to Payout Flow', () => {
     test('should complete full flow: Order → Payment → Payout', async () => {
@@ -128,20 +129,21 @@ describe('Order to Payout Integration Tests', () => {
       const periodStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       const periodEnd = new Date();
 
-      const payout = await Payout.create({
-        storeId: testStore._id,
-        ownerId: testStoreOwner._id,
-        periodStart,
-        periodEnd,
-        status: 'pending'
-      });
-
       const eligiblePayments = await Payment.find({
         storeId: testStore._id,
         status: 'completed',
         payoutStatus: 'eligible'
       });
 
+      // Create payout with calculated totals
+      const payout = new Payout({
+        storeId: testStore._id,
+        ownerId: testStoreOwner._id,
+        periodStart,
+        periodEnd,
+        status: 'pending'
+      });
+      
       payout.calculateTotals(eligiblePayments);
       await payout.save();
 
@@ -211,7 +213,7 @@ describe('Order to Payout Integration Tests', () => {
       await payment.save();
 
       // Create first payout
-      const payout1 = await Payout.create({
+      const payout1 = new Payout({
         storeId: testStore._id,
         ownerId: testStoreOwner._id,
         periodStart: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),

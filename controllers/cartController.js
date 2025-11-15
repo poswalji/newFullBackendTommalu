@@ -184,7 +184,6 @@ exports.addToCart = asyncHandler(async (req, res, next) => {
       return next(new AppError('Item unavailable', 400));
    if (!menuItem.storeId)
       return next(new AppError('Menu item store is missing', 400));
-   console.log('menuItem', menuItem);
    // Get store name - handle both populated and non-populated cases
    let storeName = menuItem.storeId?.name || '';
    let storeId = menuItem.storeId?._id || menuItem.storeId;
