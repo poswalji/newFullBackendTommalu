@@ -6,7 +6,7 @@ const app = require('./app');
 const mongoose = require('mongoose');
 const http = require('http');
 const { info, error } = require('./utils/logger');
-const { initializeSocket } = require('./utils/socket');
+const { initializeFirebase } = require('./utils/firebase');
 
 const PORT = process.env.PORT || 5000;
 const mongoUri = process.env.MONGO_URI;
@@ -28,14 +28,14 @@ const mongoUri = process.env.MONGO_URI;
       });
     }
     
-    // Create HTTP server
-    const server = http.createServer(app);
-    
-    // Initialize Socket.io
-    initializeSocket(server);
-    info("✅ Socket.io initialized", {
+    // Initialize Firebase
+    initializeFirebase();
+    info("✅ Firebase initialized", {
       service: "tommalu-backend"
     });
+    
+    // Create HTTP server
+    const server = http.createServer(app);
     
     // Start server
     server.listen(PORT, () => {

@@ -3,12 +3,12 @@ const Notification = require('../models/notificationSchema');
 const User = require('../models/user');
 const Store = require('../models/store');
 const Order = require('../models/orderSchema');
-const { getIO } = require('../utils/socket');
+const { writeNotification, emitToUser } = require('../utils/firebase');
 const { info } = require('../utils/logger');
 const emailService = require('../utils/emailService');
 
 /**
- * Create a notification and emit via Socket.io
+ * Create a notification and emit via Firebase Realtime Database
  */
 exports.createNotification = async ({
   userId,
@@ -34,23 +34,22 @@ exports.createNotification = async ({
     // Populate notification for response
     await notification.populate('userId', 'name email role');
 
-    // Emit real-time notification via Socket.io
+    // Emit real-time notification via Firebase Realtime Database
     try {
-      const io = getIO();
-      // ✅ FIXED: Ensure userId is converted to string for socket room matching
+      // ✅ FIXED: Ensure userId is converted to string
       const userRoomId = userId?._id?.toString() || userId?.toString() || userId;
-      io.to(`user:${userRoomId}`).emit('new_notification', {
-        id: notification._id,
+      writeNotification(userRoomId, {
+        id: notification._id.toString(),
         title: notification.title,
         message: notification.message,
         type: notification.type,
-        relatedId: notification.relatedId,
+        relatedId: notification.relatedId ? notification.relatedId.toString() : null,
         read: notification.read,
-        createdAt: notification.createdAt
+        createdAt: notification.createdAt.toISOString()
       });
-    } catch (socketError) {
-      // Socket.io might not be initialized, log but don't fail
-      console.warn('Socket.io emit failed:', socketError.message);
+    } catch (firebaseError) {
+      // Firebase might not be initialized, log but don't fail
+      console.warn('Firebase emit failed:', firebaseError.message);
     }
 
     info('Notification created', {
@@ -170,19 +169,17 @@ exports.notifyStoreOwnerNewOrder = async (order) => {
       console.error('Error sending email to store owner:', emailError);
     }
 
-    // Emit specific event for store owners
+    // Emit specific event for store owners via Firebase
     try {
-      const io = getIO();
-      // ✅ FIXED: Ensure storeOwnerId is converted to string for socket room matching
-      io.to(`user:${storeOwnerIdString}`).emit('new_order', {
+      emitToUser(storeOwnerIdString, 'new_order', {
         orderId: order._id?.toString() || order._id,
         storeId: order.storeId?.toString() || order.storeId,
         finalPrice: order.finalPrice,
         status: order.status,
-        createdAt: order.createdAt
+        createdAt: order.createdAt ? order.createdAt.toISOString() : new Date().toISOString()
       });
-    } catch (socketError) {
-      console.warn('Socket.io emit failed for store owner:', socketError.message);
+    } catch (firebaseError) {
+      console.warn('Firebase emit failed for store owner:', firebaseError.message);
     }
   } catch (error) {
     console.error('Error notifying store owner:', error);
@@ -222,31 +219,31 @@ exports.notifyCustomerOrderUpdate = async (order, status) => {
       }
     });
 
-    // Emit specific event for customer
+    // Emit specific event for customer via Firebase
     try {
-      const io = getIO();
       const orderPopulated = await Order.findById(order._id)
         .populate('userId', 'name email')
         .populate('storeId', 'storeName');
       
-      // ✅ FIXED: Reuse customerUserId (already defined above) for socket room matching
-      io.to(`user:${customerUserId}`).emit('order_status_update', {
+      // ✅ FIXED: Reuse customerUserId (already defined above)
+      emitToUser(customerUserId, 'order_status_update', {
         orderId: order._id?.toString() || order._id,
         status,
         message,
         customerName: orderPopulated?.userId?.name || order.userId?.name || 'Customer'
       });
 
-      // Also emit to admin room for order status updates
-      io.to('admin').emit('order_status_update', {
-        orderId: order._id,
+      // Also emit to admin role for order status updates
+      const { emitToAdmin } = require('../utils/firebase');
+      emitToAdmin('order_status_update', {
+        orderId: order._id?.toString() || order._id,
         status,
         message,
         customerName: orderPopulated?.userId?.name || 'Customer',
         deliveryAddress: orderPopulated?.deliveryAddress
       });
-    } catch (socketError) {
-      console.warn('Socket.io emit failed for customer:', socketError.message);
+    } catch (firebaseError) {
+      console.warn('Firebase emit failed for customer:', firebaseError.message);
     }
 
     // Send email notification to customer for order tracking
@@ -304,19 +301,19 @@ exports.notifyAdminNewOrder = async (order) => {
 
     await Promise.all(notificationPromises);
 
-    // Emit to admin room
+    // Emit to admin role via Firebase
     try {
-      const io = getIO();
-      io.to('admin').emit('new_order', {
-        orderId: order._id,
-        storeId: order.storeId,
-        userId: order.userId,
+      const { emitToAdmin } = require('../utils/firebase');
+      emitToAdmin('new_order', {
+        orderId: order._id?.toString() || order._id,
+        storeId: order.storeId?.toString() || order.storeId,
+        userId: order.userId?.toString() || order.userId,
         finalPrice: order.finalPrice,
         status: order.status,
-        createdAt: order.createdAt
+        createdAt: order.createdAt ? order.createdAt.toISOString() : new Date().toISOString()
       });
-    } catch (socketError) {
-      console.warn('Socket.io emit failed for admin:', socketError.message);
+    } catch (firebaseError) {
+      console.warn('Firebase emit failed for admin:', firebaseError.message);
     }
   } catch (error) {
     console.error('Error notifying admin:', error);
@@ -366,13 +363,13 @@ exports.notifyAdminDeliveryAssignment = async (order) => {
 
     await Promise.all(notificationPromises);
 
-    // Emit delivery_assigned event to all admins
+    // Emit delivery_assigned event to all admins via Firebase
     try {
-      const io = getIO();
-      admins.forEach(admin => {
-        // ✅ FIXED: Ensure admin._id is converted to string for socket room matching
-        const adminIdString = admin._id?.toString() || admin._id;
-        io.to(`user:${adminIdString}`).emit('delivery_assigned', {
+      const { emitToUser } = require('../utils/firebase');
+      admins.forEach(adminUser => {
+        // ✅ FIXED: Ensure admin._id is converted to string
+        const adminIdString = adminUser._id?.toString() || adminUser._id;
+        emitToUser(adminIdString, 'delivery_assigned', {
           orderId: orderPopulated._id?.toString() || orderPopulated._id,
           orderNumber,
           customerName,
@@ -382,8 +379,8 @@ exports.notifyAdminDeliveryAssignment = async (order) => {
           storeName: orderPopulated.storeId?.storeName || 'Store'
         });
       });
-    } catch (socketError) {
-      console.warn('Socket.io emit failed for delivery assignment:', socketError.message);
+    } catch (firebaseError) {
+      console.warn('Firebase emit failed for delivery assignment:', firebaseError.message);
     }
 
     // Send email notifications to all admins

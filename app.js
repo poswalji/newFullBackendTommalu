@@ -9,7 +9,7 @@ const mongoose = require('mongoose');
 const { swaggerSpec } = require('./docs/swagger');
 const { logger, info, error } = require('./utils/logger');
 const http = require('http');
-const { initializeSocket } = require('./utils/socket');
+const { initializeFirebase } = require('./utils/firebase');
 
 const app = express();
 let httpServer = null;
@@ -256,20 +256,18 @@ app.use((err, req, res, next) => {
 // For traditional server, we connect immediately
 const PORT = process.env.PORT || 5000;
 
-// Function to initialize Socket.IO if HTTP server is available
-const initializeSocketIfAvailable = () => {
-  if (httpServer) {
-    try {
-      initializeSocket(httpServer);
-      info("✅ Socket.io initialized", {
-        service: "tommalu-backend"
-      });
-    } catch (err) {
-      error("⚠️ Failed to initialize Socket.io", {
-        message: err.message,
-        stack: err.stack,
-      });
-    }
+// Function to initialize Firebase
+const initializeFirebaseIfAvailable = () => {
+  try {
+    initializeFirebase();
+    info("✅ Firebase initialized", {
+      service: "tommalu-backend"
+    });
+  } catch (err) {
+    error("⚠️ Failed to initialize Firebase", {
+      message: err.message,
+      stack: err.stack,
+    });
   }
 };
 
@@ -279,10 +277,10 @@ if (require.main === module) {
   (async () => {
     try {
       await connectDB();
+      // Initialize Firebase
+      initializeFirebaseIfAvailable();
       // Create HTTP server and attach Express app
       httpServer = http.createServer(app);
-      // Initialize Socket.IO
-      initializeSocketIfAvailable();
       // Start server
       httpServer.listen(PORT, () => {
         info(`🚀 Server running on port ${PORT}`, {
@@ -307,26 +305,16 @@ if (require.main === module) {
     });
   });
   
-  // Note: Socket.IO requires a persistent HTTP server connection
-  // In traditional serverless environments (AWS Lambda, Vercel serverless functions),
-  // Socket.IO won't work because each request is a separate function invocation.
-  // Socket.IO will only work if:
-  // 1. The platform supports persistent WebSocket connections (e.g., Vercel with WebSocket support)
-  // 2. The HTTP server is provided by the platform and accessible
-  // For now, Socket.IO initialization is skipped in serverless environments
-  // If your platform supports WebSockets, you'll need to initialize Socket.IO
-  // when you have access to the HTTP server (e.g., in a Vercel serverless function handler)
+  // Initialize Firebase (works in serverless environments)
+  initializeFirebaseIfAvailable();
 }
 
 // Export both app and helper functions
 module.exports = app;
 module.exports.getHttpServer = () => httpServer;
 
-// Helper function to initialize Socket.IO with a provided HTTP server
-// Useful for serverless environments that support WebSockets
-module.exports.initializeSocketWithServer = (server) => {
-  if (server) {
-    httpServer = server;
-    initializeSocketIfAvailable();
-  }
+// Helper function to initialize Firebase
+// Firebase works in all environments including serverless
+module.exports.initializeFirebaseWithConfig = () => {
+  initializeFirebaseIfAvailable();
 };

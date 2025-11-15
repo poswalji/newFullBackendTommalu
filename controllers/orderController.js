@@ -320,7 +320,7 @@ exports.createOrder = asyncHandler(async(req, res, next) => {
         // Order is still created, payment can be created manually later if needed
     }
     
-    // ✅ Send real-time notifications via Socket.io
+    // ✅ Send real-time notifications via Firebase Realtime Database
     // Notify store owner about new order
     notificationService.notifyStoreOwnerNewOrder(newOrder).catch(err => {
         console.error('Error notifying store owner:', err);
@@ -481,7 +481,7 @@ exports.updateOrderStatus = asyncHandler(async (req, res, next) => {
     ).populate('userId', 'name email phone')
      .populate('storeId', 'storeName');
     
-    // ✅ Send real-time notifications via Socket.io
+    // ✅ Send real-time notifications via Firebase Realtime Database
     // Notify customer about status update
     notificationService.notifyCustomerOrderUpdate(updatedOrder, status).catch(err => {
         console.error('Error notifying customer:', err);
@@ -822,7 +822,7 @@ exports.createOrderFromCart = asyncHandler(async (req, res, next) => {
     await newOrder.populate('storeId', 'storeName');
     await newOrder.populate('items.menuItemId', 'name');
 
-    // ✅ Send real-time notifications via Socket.io
+    // ✅ Send real-time notifications via Firebase Realtime Database
     // Notify store owner about new order
     notificationService.notifyStoreOwnerNewOrder(newOrder).catch(err => {
         console.error('Error notifying store owner:', err);
@@ -948,7 +948,7 @@ exports.cancelOrder = asyncHandler(async (req, res, next) => {
         // Don't fail the order cancellation if payment update fails
     }
 
-    // ✅ Send real-time notifications via Socket.io
+    // ✅ Send real-time notifications via Firebase Realtime Database
     // Notify store owner about cancellation
     const store = await Store.findById(order.storeId).populate('ownerId');
     if (store && store.ownerId) {
@@ -1183,7 +1183,7 @@ exports.updateOrderStatusAdmin = asyncHandler(async (req, res, next) => {
         }
     }
     
-    // ✅ Send real-time notifications via Socket.io
+    // ✅ Send real-time notifications via Firebase Realtime Database
     // Notify customer about status update
     notificationService.notifyCustomerOrderUpdate(updated, status).catch(err => {
         console.error('Error notifying customer:', err);
