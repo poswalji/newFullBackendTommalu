@@ -269,3 +269,162 @@ exports.sendNewOrderEmailToStoreOwner = async (email, orderData) => {
   }
 };
 
+// Send homemade food order notification to admin
+exports.sendHomemadeFoodOrderNotification = async (email, orderData) => {
+  try {
+    const transporter = createTransporter();
+    const { orderNumber, customerName, mobileNumber, foodName, quantity, finalAmount, deliveryAddress, specialInstructions } = orderData;
+
+    const mailOptions = {
+      from: `"Tommalu" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: `🍽️ New Homemade Food Order - #${orderNumber}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9;">
+          <div style="background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <div style="text-align: center; margin-bottom: 20px;">
+              <h2 style="color: #FF6B35; margin: 0;">🍽️ New Homemade Food Order!</h2>
+            </div>
+            
+            <div style="background: linear-gradient(135deg, #FF6B35 0%, #F7931E 100%); padding: 20px; border-radius: 8px; margin: 20px 0; color: white;">
+              <p style="margin: 0; font-size: 14px; opacity: 0.9;">Order Number</p>
+              <h1 style="margin: 5px 0 0 0; font-size: 28px;">#${orderNumber}</h1>
+            </div>
+
+            <div style="background-color: #fff8f0; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #FF6B35;">
+              <h3 style="color: #333; margin: 0 0 15px 0;">📦 Order Details</h3>
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr>
+                  <td style="padding: 8px 0; color: #666;">Food Item:</td>
+                  <td style="padding: 8px 0; color: #333; font-weight: bold; text-align: right;">${foodName}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; color: #666;">Quantity:</td>
+                  <td style="padding: 8px 0; color: #333; font-weight: bold; text-align: right;">${quantity} Thali(s)</td>
+                </tr>
+                <tr style="border-top: 1px dashed #ddd;">
+                  <td style="padding: 12px 0; color: #333; font-weight: bold;">Total Amount:</td>
+                  <td style="padding: 12px 0; color: #FF6B35; font-weight: bold; text-align: right; font-size: 20px;">₹${finalAmount}</td>
+                </tr>
+              </table>
+            </div>
+
+            <div style="background-color: #f0f8ff; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #007bff;">
+              <h3 style="color: #333; margin: 0 0 15px 0;">👤 Customer Details</h3>
+              <p style="margin: 5px 0; color: #333;"><strong>Name:</strong> ${customerName}</p>
+              <p style="margin: 5px 0; color: #333;"><strong>Mobile:</strong> <a href="tel:${mobileNumber}" style="color: #007bff; text-decoration: none;">${mobileNumber}</a></p>
+            </div>
+
+            <div style="background-color: #f0fff0; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #28a745;">
+              <h3 style="color: #333; margin: 0 0 15px 0;">📍 Delivery Address</h3>
+              <p style="margin: 5px 0; color: #666;">
+                ${deliveryAddress.street}${deliveryAddress.landmark ? `, ${deliveryAddress.landmark}` : ''}<br>
+                ${deliveryAddress.city}${deliveryAddress.state ? `, ${deliveryAddress.state}` : ''} - ${deliveryAddress.pincode}
+              </p>
+            </div>
+
+            ${specialInstructions ? `
+            <div style="background-color: #fffbf0; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #ffc107;">
+              <h3 style="color: #333; margin: 0 0 10px 0;">📝 Special Instructions</h3>
+              <p style="margin: 0; color: #666; font-style: italic;">"${specialInstructions}"</p>
+            </div>
+            ` : ''}
+
+            <div style="text-align: center; margin-top: 30px;">
+              <a href="${frontendUrl}/admin/homemade-food" style="background-color: #FF6B35; color: white; padding: 14px 30px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold; font-size: 16px;">
+                View in Admin Panel
+              </a>
+            </div>
+
+            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+            <p style="color: #999; font-size: 12px; text-align: center;">
+              © ${new Date().getFullYear()} Tommalu. All rights reserved.
+            </p>
+          </div>
+        </div>
+      `
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log('Homemade food order notification sent to admin:', info.messageId);
+    return true;
+  } catch (error) {
+    console.error('Error sending homemade food order notification:', error);
+    throw new Error('Failed to send homemade food order notification');
+  }
+};
+
+// Send homemade food order status update to customer
+exports.sendHomemadeFoodOrderStatusUpdate = async (email, orderData) => {
+  try {
+    const transporter = createTransporter();
+    const { orderNumber, customerName, foodName, status, finalAmount } = orderData;
+
+    const statusConfig = {
+      'pending': { emoji: '⏳', color: '#f0ad4e', message: 'Your order is pending confirmation' },
+      'confirmed': { emoji: '✅', color: '#5cb85c', message: 'Your order has been confirmed!' },
+      'preparing': { emoji: '👨‍🍳', color: '#FF6B35', message: 'Your delicious food is being prepared' },
+      'ready': { emoji: '🍽️', color: '#5bc0de', message: 'Your food is ready and waiting for pickup/delivery' },
+      'out_for_delivery': { emoji: '🚀', color: '#5cb85c', message: 'Your order is out for delivery!' },
+      'delivered': { emoji: '🎉', color: '#28a745', message: 'Your order has been delivered. Enjoy your meal!' },
+      'cancelled': { emoji: '❌', color: '#d9534f', message: 'Your order has been cancelled' },
+      'refund_initiated': { emoji: '💰', color: '#f0ad4e', message: 'Refund has been initiated for your order' },
+      'refund_completed': { emoji: '✅', color: '#28a745', message: 'Refund has been completed for your order' },
+      'payment_received': { emoji: '💳', color: '#5cb85c', message: 'Payment received successfully!' }
+    };
+
+    const config = statusConfig[status] || { emoji: '📦', color: '#666', message: 'Your order status has been updated' };
+
+    const mailOptions = {
+      from: `"Tommalu" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: `${config.emoji} Order #${orderNumber} - ${status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9;">
+          <div style="background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <h2 style="color: #333; margin-bottom: 20px; text-align: center;">
+              ${config.emoji} Order Status Update
+            </h2>
+            
+            <p style="color: #666; font-size: 16px; line-height: 1.6;">
+              Hello ${customerName},
+            </p>
+            
+            <div style="background-color: ${config.color}20; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid ${config.color};">
+              <p style="margin: 0; color: ${config.color}; font-size: 18px; font-weight: bold;">
+                ${config.message}
+              </p>
+            </div>
+
+            <div style="background-color: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <p style="margin: 5px 0; color: #333;"><strong>Order Number:</strong> #${orderNumber}</p>
+              <p style="margin: 5px 0; color: #333;"><strong>Food Item:</strong> ${foodName}</p>
+              <p style="margin: 5px 0; color: #333;"><strong>Total Amount:</strong> ₹${finalAmount}</p>
+              <p style="margin: 5px 0; color: #333;"><strong>Current Status:</strong> 
+                <span style="color: ${config.color}; font-weight: bold;">
+                  ${status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                </span>
+              </p>
+            </div>
+
+            <p style="color: #666; font-size: 14px; line-height: 1.6;">
+              You can track your order anytime by visiting our website with your order number and mobile number.
+            </p>
+
+            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+            <p style="color: #999; font-size: 12px; text-align: center;">
+              © ${new Date().getFullYear()} Tommalu. All rights reserved.
+            </p>
+          </div>
+        </div>
+      `
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log('Homemade food order status update sent:', info.messageId);
+    return true;
+  } catch (error) {
+    console.error('Error sending homemade food order status update:', error);
+    throw new Error('Failed to send order status update');
+  }
+};

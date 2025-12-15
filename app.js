@@ -165,6 +165,7 @@ app.use("/api/promotions", require("./routes/promotionRoutes"));
 app.use("/api/disputes", require("./routes/disputeRoutes"));
 app.use("/api/payouts", require("./routes/payoutRoutes"));
 app.use("/api/notifications", require("./routes/notificationRoutes"));
+app.use("/api/admin/homemade-food", require("./routes/homemadeFoodRoutes"));
 
 // 404 handler for undefined routes - must be before error middleware
 app.use((req, res, next) => {

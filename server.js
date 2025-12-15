@@ -28,11 +28,17 @@ const mongoUri = process.env.MONGO_URI;
       });
     }
     
-    // Initialize Firebase
-    initializeFirebase();
-    info("✅ Firebase initialized", {
-      service: "tommalu-backend"
-    });
+    // Initialize Firebase (optional - won't crash if not configured)
+    try {
+      initializeFirebase();
+      info("✅ Firebase initialized", {
+        service: "tommalu-backend"
+      });
+    } catch (firebaseErr) {
+      error("⚠️ Firebase not initialized (notifications will be disabled)", {
+        message: firebaseErr.message,
+      });
+    }
     
     // Create HTTP server
     const server = http.createServer(app);
