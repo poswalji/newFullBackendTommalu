@@ -34,6 +34,27 @@ exports.protect = asyncHandler(async (req, res, next) => {
     }
 });
 
+// ✅ Optional Auth - Verify token if present, continue as guest if not
+exports.isLoggedIn = asyncHandler(async (req, res, next) => {
+    let token;
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+        token = req.headers.authorization.split(' ')[1];
+    }
+
+    if (token) {
+        try {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            const currentUser = await User.findById(decoded.id);
+            if (currentUser) {
+                req.user = currentUser;
+            }
+        } catch (err) {
+            // Token invalid or expired, proceed as guest
+        }
+    }
+    next();
+});
+
 // ✅ Authorization - check user role
 exports.restrictTo = (...roles) => {
     return (req, res, next) => {
@@ -71,7 +92,7 @@ exports.restrictAdminTo = (...adminRoles) => {
 exports.checkOwnership = (model) => {
     return asyncHandler(async (req, res, next) => {
         const doc = await model.findById(req.params.id);
-        
+
         if (!doc) {
             return next(new AppError('Document not found', 404));
         }

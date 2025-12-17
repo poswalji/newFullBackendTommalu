@@ -1,28 +1,19 @@
-const express = require("express");
+const express = require('express');
 const router = express.Router();
-const homemadeFoodController = require("../controllers/homemadeFoodController");
-const { protect, requireAdmin } = require("../middleware/authMiddleware");
+const dailyMenuController = require('../controllers/dailyMenuController');
+const { protect, restrictTo, isLoggedIn } = require('../middleware/authMiddleware'); // Assuming auth logic exists
 
-// ============================================
-// ADMIN ROUTES (Protected)
-// ============================================
+// Public Routes
+router.get('/today', dailyMenuController.getTodayMenu);
+router.post('/order', isLoggedIn, dailyMenuController.placeOrder);
 
-// Food Item Management
-router.get("/", protect, requireAdmin, homemadeFoodController.getAllHomemadeFoods);
-router.post("/", protect, requireAdmin, homemadeFoodController.createHomemadeFood);
-router.put("/:id", protect, requireAdmin, homemadeFoodController.updateHomemadeFood);
-router.delete("/:id", protect, requireAdmin, homemadeFoodController.deleteHomemadeFood);
-router.patch("/:id/set-todays-special", protect, requireAdmin, homemadeFoodController.setTodaysSpecial);
+// Admin Routes (Protected)
+// Assuming 'storeOwner' or 'admin' role is required
+router.use(protect); // Ensure user is logged in
+router.use(restrictTo('admin', 'storeOwner')); // Restrict to admin/owner
 
-// Order Management
-router.get("/orders", protect, requireAdmin, homemadeFoodController.getAllOrders);
-router.get("/orders/export", protect, requireAdmin, homemadeFoodController.exportOrders);
-router.get("/orders/:id", protect, requireAdmin, homemadeFoodController.getOrderById);
-router.patch("/orders/:id/status", protect, requireAdmin, homemadeFoodController.updateOrderStatus);
-router.patch("/orders/:id/payment", protect, requireAdmin, homemadeFoodController.updatePaymentStatus);
-
-// Analytics
-router.get("/analytics", protect, requireAdmin, homemadeFoodController.getAnalytics);
+router.patch('/update', dailyMenuController.updateMenu);
+router.patch('/order/:id/confirm', dailyMenuController.confirmOrder);
+router.get('/dashboard', dailyMenuController.getDashboardStats);
 
 module.exports = router;
-

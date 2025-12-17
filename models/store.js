@@ -1,21 +1,21 @@
 const mongoose = require("mongoose");
 
 const storeSchema = new mongoose.Schema({
-  ownerId: { 
-    type: mongoose.Schema.Types.ObjectId, 
-    ref: "User", 
-    required: true 
+  ownerId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true
   },
-  storeName: { 
-    type: String, 
+  storeName: {
+    type: String,
     required: true,
     trim: true
   },
-  address: { 
-    type: String, 
-    required: true 
+  address: {
+    type: String,
+    required: true
   },
-  
+
   // ✅ Location Coordinates for delivery calculation
   location: {
     type: {
@@ -30,47 +30,48 @@ const storeSchema = new mongoose.Schema({
     }
     // Location is optional - only set if both type and coordinates are provided
   },
-  
-  phone: { 
-    type: String, 
+
+  phone: {
+    type: String,
     required: true,
     match: [/^\d{10}$/, 'Please enter a valid 10-digit phone number']
   },
-  
- 
 
-  
+
+
+
   // ✅ Enhanced Category System
-  category: { 
-    type: String, 
+  category: {
+    type: String,
     enum: [
-      "Restaurant", 
-      "Grocery Store", 
-      "Bakery", 
+      "Restaurant",
+      "Grocery Store",
+      "Bakery",
       "Pharmacy",
       "Vegetable & Fruits",
       "Meat & Fish",
       "Dairy",
+      "Homemade Food",
       "Other"
     ],
     required: true,
     default: "Restaurant"
   },
-  
+
   // ✅ Store Images
   storeImages: [{
     type: String, // URL of images
   }],
-  
+
   // ✅ Store Basic Info
-  description: { 
+  description: {
     type: String,
     maxlength: 500
   },
-  
- 
-  minOrder: { 
-    type: Number, 
+
+
+  minOrder: {
+    type: Number,
     default: 49,
     min: 0
   },
@@ -80,7 +81,7 @@ const storeSchema = new mongoose.Schema({
     default: 30,
     min: 0
   },
-  
+
   // ✅ Store Timing
   openingTime: {
     type: String,
@@ -90,17 +91,17 @@ const storeSchema = new mongoose.Schema({
     type: String,
     default: "22:00"
   },
-  
+
   // ✅ Enhanced Rating System
-  rating: { 
-    type: Number, 
-    default: 4.2, 
-    min: 0, 
-    max: 5 
+  rating: {
+    type: Number,
+    default: 4.2,
+    min: 0,
+    max: 5
   },
-  totalReviews: { 
-    type: Number, 
-    default: 0 
+  totalReviews: {
+    type: Number,
+    default: 0
   },
   reviews: [{
     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
@@ -108,31 +109,31 @@ const storeSchema = new mongoose.Schema({
     comment: String,
     createdAt: { type: Date, default: Date.now }
   }],
-  
+
   // ✅ Order Tracking
-  timesOrdered: { 
-    type: Number, 
-    default: 0 
+  timesOrdered: {
+    type: Number,
+    default: 0
   },
   totalEarnings: {
     type: Number,
     default: 0
   },
-  
+
   // ✅ Store Status
-  isOpen: { 
-    type: Boolean, 
-    default: true 
+  isOpen: {
+    type: Boolean,
+    default: true
   },
-  available: { 
-    type: Boolean, 
-    default: true 
+  available: {
+    type: Boolean,
+    default: true
   },
-  
+
   // ✅ License Verification Status (Internal)
-  isVerified: { 
-    type: Boolean, 
-    default: false 
+  isVerified: {
+    type: Boolean,
+    default: false
   },
   verificationNotes: { // Admin can add notes for verification
     type: String
@@ -162,8 +163,8 @@ const storeSchema = new mongoose.Schema({
     default: 10
   }
 
-}, { 
-  timestamps: true 
+}, {
+  timestamps: true
 });
 
 // ✅ Index for better performance
@@ -172,20 +173,20 @@ storeSchema.index({ location: '2dsphere' });
 storeSchema.index({ category: 1, isOpen: 1, available: 1 });
 
 // ✅ Virtual for average rating calculation
-storeSchema.virtual('averageRating').get(function() {
+storeSchema.virtual('averageRating').get(function () {
   if (this.reviews?.length === 0) return 0;
   const sum = this.reviews?.reduce((acc, review) => acc + review.rating, 0);
   return (sum / this.reviews?.length).toFixed(1);
 });
 
 // ✅ Method to check if store is currently open
-storeSchema.methods.isCurrentlyOpen = function() {
+storeSchema.methods.isCurrentlyOpen = function () {
   if (!this.isOpen || !this.available) return false;
-  
+
   const now = new Date();
-  const currentTime = now.getHours().toString().padStart(2, '0') + ':' + 
-                     now.getMinutes().toString().padStart(2, '0');
-  
+  const currentTime = now.getHours().toString().padStart(2, '0') + ':' +
+    now.getMinutes().toString().padStart(2, '0');
+
   return currentTime >= this.openingTime && currentTime <= this.closingTime;
 };
 
@@ -195,7 +196,7 @@ storeSchema.methods.isCurrentlyOpen = function() {
 // ✅ Virtual populate for menu items
 storeSchema.virtual("menu", {
   ref: "MenuItem",
-  localField: "_id", 
+  localField: "_id",
   foreignField: "storeId"
 });
 

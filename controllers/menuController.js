@@ -116,6 +116,7 @@ exports.getAllProducts = asyncHandler(async (req, res, next) => {
             storeCategory: item.storeId?.category,
             isPopular: item.timesOrdered > 15,
             isBestSeller: item.isBestSeller,
+            frontendCategory: item.frontendCategory,
          })),
       pagination: {
          page: parseInt(page),
@@ -185,6 +186,7 @@ exports.getStoreMenu = asyncHandler(async (req, res, next) => {
          isBestSeller: item.isBestSeller,
          isSpecial: item.isSpecial,
          timesOrdered: item.timesOrdered,
+         frontendCategory: item.frontendCategory,
       })),
    });
 });
@@ -533,6 +535,7 @@ exports.getMenuItemById = asyncHandler(async (req, res, next) => {
          timesOrdered: menuItem.timesOrdered,
          storeId: menuItem.storeId?._id || menuItem.storeId,
          storeName: menuItem.storeId?.storeName,
+         frontendCategory: menuItem.frontendCategory,
          createdAt: menuItem.createdAt,
          updatedAt: menuItem.updatedAt,
       },

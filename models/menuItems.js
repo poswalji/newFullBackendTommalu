@@ -1,77 +1,78 @@
 const mongoose = require('mongoose');
 
 const menuItemSchema = new mongoose.Schema({
-  storeId: { 
-    type: mongoose.Schema.Types.ObjectId, 
-    ref: "Store", 
+  storeId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Store",
     required: true,
     index: true
   },
-  
-  name: { 
-    type: String, 
+
+  name: {
+    type: String,
     required: true,
     trim: true,
     maxlength: 100
   },
-  
+
   description: {
     type: String,
     maxlength: 300
   },
-  
-  price: { 
-    type: Number, 
+
+  price: {
+    type: Number,
     required: true,
     min: 1,
     max: 10000 // Reasonable max price
   },
-  
+
   // ✅ Original price for discounts
   originalPrice: {
     type: Number,
     min: 0
   },
-  
+
   // ✅ Improved categories - more organized
-  category: { 
-    type: String, 
+  category: {
+    type: String,
     enum: [
-      "Veg Main Course", 
-      "Non-Veg Main Course", 
-      "Starters & Snacks", 
+      "Veg Main Course",
+      "Non-Veg Main Course",
+      "Starters & Snacks",
       "Breads & Rice",
-      "Drinks & Beverages", 
-      "Dairy & Eggs", 
-      "Groceries & Essentials", 
+      "Drinks & Beverages",
+      "Dairy & Eggs",
+      "Groceries & Essentials",
       "Fruits & Vegetables",
-      "Sweets & Desserts", 
-      "Fast Food", 
-      "Bakery Items", 
+      "Sweets & Desserts",
+      "Fast Food",
+      "Bakery Items",
       "Grains & Pulses",
       "Meat & Seafood",
+      "Homemade Food",
       "Other"
-    ], 
+    ],
     required: true,
     default: "Veg Main Course"
   },
-  
+
   // ✅ Food type - important for local customers
   foodType: {
     type: String,
     enum: ["veg", "non-veg", "egg", "vegan"],
     default: "veg"
   },
-  
+
   // ✅ Multiple images support
   images: [{
     type: String // URLs array
   }],
-  
+
   // ✅ Availability & Inventory
-  isAvailable: { 
-    type: Boolean, 
-    default: true 
+  isAvailable: {
+    type: Boolean,
+    default: true
   },
   inStock: {
     type: Boolean,
@@ -81,7 +82,7 @@ const menuItemSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
-  
+
   // ✅ Preparation time (restaurants ke liye)
   preparationTime: {
     type: Number, // minutes mein
@@ -89,7 +90,7 @@ const menuItemSchema = new mongoose.Schema({
     max: 240, // 4 hours max
     default: 15
   },
-  
+
   // ✅ Customization options
   customizations: [{
     name: String, // "Spice Level", "Toppings", etc.
@@ -99,7 +100,7 @@ const menuItemSchema = new mongoose.Schema({
     }],
     isRequired: { type: Boolean, default: false }
   }],
-  
+
   // ✅ Nutritional info (optional)
   nutritionalInfo: {
     calories: Number,
@@ -107,7 +108,7 @@ const menuItemSchema = new mongoose.Schema({
     carbs: Number,
     fats: Number
   },
-  
+
   // ✅ Popularity & Performance tracking
   timesOrdered: {
     type: Number,
@@ -117,7 +118,7 @@ const menuItemSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
-  
+
   // ✅ Special flags
   isSpecial: {
     type: Boolean,
@@ -127,7 +128,7 @@ const menuItemSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
-  
+
   // ✅ Discount & Offers
   discount: {
     type: Number,
@@ -135,12 +136,12 @@ const menuItemSchema = new mongoose.Schema({
     max: 100,
     default: 0
   },
-  
+
   // ✅ Tags for better search
   tags: [String]
 
-}, { 
-  timestamps: true 
+}, {
+  timestamps: true
 });
 
 // ✅ Indexes for better performance
@@ -150,7 +151,7 @@ menuItemSchema.index({ storeId: 1, foodType: 1 });
 menuItemSchema.index({ storeId: 1, isBestSeller: 1 });
 
 // ✅ Virtual for discount price
-menuItemSchema.virtual('discountPrice').get(function() {
+menuItemSchema.virtual('discountPrice').get(function () {
   if (this.discount > 0) {
     return this.price - (this.price * this.discount / 100);
   }
@@ -158,44 +159,63 @@ menuItemSchema.virtual('discountPrice').get(function() {
 });
 
 // ✅ Virtual for popularity
-menuItemSchema.virtual('isPopular').get(function() {
+menuItemSchema.virtual('isPopular').get(function () {
   return this.timesOrdered > 15;
 });
 
 // ✅ Check if item is in stock
-menuItemSchema.virtual('isInStock').get(function() {
+menuItemSchema.virtual('isInStock').get(function () {
   return this.inStock && this.stockQuantity > 0;
 });
 
+// ✅ Virtual for frontend category grouping
+menuItemSchema.virtual('frontendCategory').get(function () {
+  const quickEssentials = [
+    "Groceries & Essentials",
+    "Fruits & Vegetables",
+    "Fast Food",
+    "Bakery Items",
+    "Grains & Pulses",
+    "Meat & Seafood",
+    "Dairy & Eggs", // Added based on context, though user didn't explicitly list it, it fits 'Quick Essentials' usually.
+    "Drinks & Beverages"
+  ];
+
+  if (quickEssentials.includes(this.category)) {
+    return "Quick Essentials";
+  }
+  return "Homemade Food";
+});
+
 // ✅ Method to increment orders
-menuItemSchema.methods.incrementOrders = function(quantity = 1) {
+menuItemSchema.methods.incrementOrders = function (quantity = 1) {
   this.timesOrdered += quantity;
   this.totalRevenue += this.price * quantity;
   return this.save();
 };
 
 // ✅ Method to update stock
-menuItemSchema.methods.updateStock = function(quantity) {
+menuItemSchema.methods.updateStock = function (quantity) {
   this.stockQuantity += quantity;
   this.inStock = this.stockQuantity > 0;
   return this.save();
 };
 
 // ✅ Method to toggle availability
-menuItemSchema.methods.toggleAvailable = function() {
+menuItemSchema.methods.toggleAvailable = function () {
   this.isAvailable = !this.isAvailable;
   return this.save();
 };
 
 // ✅ Static method to get popular items by store
-menuItemSchema.statics.getPopularItems = function(storeId, limit = 10) {
+menuItemSchema.statics.getPopularItems = function (storeId, limit = 10) {
   return this.find({ storeId, isAvailable: true })
     .sort({ timesOrdered: -1 })
     .limit(limit);
 };
 
 // ✅ Pre-save middleware to handle original price
-menuItemSchema.pre('save', function(next) {
+menuItemSchema.pre('save', function (next) {
   if (this.isModified('price') && !this.originalPrice) {
     this.originalPrice = this.price;
   }

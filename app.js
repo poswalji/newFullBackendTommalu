@@ -166,6 +166,7 @@ app.use("/api/disputes", require("./routes/disputeRoutes"));
 app.use("/api/payouts", require("./routes/payoutRoutes"));
 app.use("/api/notifications", require("./routes/notificationRoutes"));
 app.use("/api/admin/homemade-food", require("./routes/homemadeFoodRoutes"));
+app.use("/api/homemade", require("./routes/homemadeFoodRoutes")); // Public access alias
 
 // 404 handler for undefined routes - must be before error middleware
 app.use((req, res, next) => {
@@ -178,7 +179,7 @@ app.use((req, res, next) => {
 app.use((err, req, res, next) => {
   // Determine status code
   let statusCode = err.statusCode || 500;
-  
+
   // Handle MongoDB errors specifically
   if (err.name === 'MongoServerError' || err.name === 'MongoError') {
     // MongoDB validation/duplicate key errors
@@ -190,22 +191,22 @@ app.use((err, req, res, next) => {
       statusCode = 500; // Internal Server Error for other MongoDB errors
     }
   }
-  
+
   // Handle Mongoose validation errors
   if (err.name === 'ValidationError') {
     statusCode = 400; // Bad Request
   }
-  
+
   // Handle Cast errors (invalid ObjectId, etc.)
   if (err.name === 'CastError') {
     statusCode = 400; // Bad Request
   }
-  
+
   // Ensure we never return 200 for errors
   if (statusCode === 200 || !statusCode) {
     statusCode = 500;
   }
-  
+
   // Log error with comprehensive details
   logger.error('Error occurred in request', {
     message: err.message,
@@ -222,7 +223,7 @@ app.use((err, req, res, next) => {
     isOperational: err.isOperational || false,
     ...(err.errors && { validationErrors: err.errors }),
   });
-  
+
   // Prepare error response
   const errorResponse = {
     success: false,
@@ -233,12 +234,12 @@ app.use((err, req, res, next) => {
       method: req.method || 'UNKNOWN',
     },
   };
-  
+
   // Add stack trace in development
   if (process.env.NODE_ENV !== 'production') {
     errorResponse.error.stack = err.stack;
   }
-  
+
   // Add validation errors if present
   if (err.errors && typeof err.errors === 'object') {
     errorResponse.error.errors = err.errors;
@@ -248,7 +249,7 @@ app.use((err, req, res, next) => {
   if (err.verificationToken) {
     errorResponse.verificationToken = err.verificationToken;
   }
-  
+
   // Send error response with proper status code (never 200)
   res.status(statusCode).json(errorResponse);
 });
@@ -305,7 +306,7 @@ if (require.main === module) {
       message: err.message,
     });
   });
-  
+
   // Initialize Firebase (works in serverless environments)
   initializeFirebaseIfAvailable();
 }
