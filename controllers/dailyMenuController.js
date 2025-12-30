@@ -364,3 +364,154 @@ exports.confirmOrder = catchAsync(async (req, res, next) => {
         message: 'Order confirmed successfully'
     });
 });
+
+// ==========================================
+// Generic CRUD for Food Items & Orders (Merged)
+// ==========================================
+
+const { HomemadeFood, HomemadeFoodOrder } = require('../models/homemadeFood');
+const APIFeatures = require('../utils/apiFeatures');
+
+exports.getAllHomemadeFoods = catchAsync(async (req, res, next) => {
+    const features = new APIFeatures(HomemadeFood.find(), req.query)
+        .filter()
+        .sort()
+        .limitFields()
+        .paginate();
+
+    const foods = await features.query;
+    const total = await HomemadeFood.countDocuments(features.queryString || {});
+
+    res.status(200).json({
+        success: true,
+        total,
+        data: foods
+    });
+});
+
+exports.createHomemadeFood = catchAsync(async (req, res, next) => {
+    const newFood = await HomemadeFood.create(req.body);
+    res.status(201).json({
+        success: true,
+        data: newFood
+    });
+});
+
+exports.updateHomemadeFood = catchAsync(async (req, res, next) => {
+    const food = await HomemadeFood.findByIdAndUpdate(req.params.id, req.body, {
+        new: true,
+        runValidators: true
+    });
+
+    if (!food) {
+        return next(new AppError('No food item found with that ID', 404));
+    }
+
+    res.status(200).json({
+        success: true,
+        data: food
+    });
+});
+
+exports.deleteHomemadeFood = catchAsync(async (req, res, next) => {
+    const food = await HomemadeFood.findByIdAndDelete(req.params.id);
+
+    if (!food) {
+        return next(new AppError('No food item found with that ID', 404));
+    }
+
+    res.status(204).json({
+        success: true,
+        data: null
+    });
+});
+
+// Orders Management (Generic List)
+exports.getAllOrders = catchAsync(async (req, res, next) => {
+    const features = new APIFeatures(HomemadeFoodOrder.find(), req.query)
+        .filter()
+        .sort()
+        .limitFields()
+        .paginate();
+
+    const orders = await features.query;
+    const total = await HomemadeFoodOrder.countDocuments(features.queryString || {});
+
+    res.status(200).json({
+        success: true,
+        pagination: {
+            total,
+            page: req.query.page * 1 || 1,
+            limit: req.query.limit * 1 || 10,
+            pages: Math.ceil(total / (req.query.limit * 1 || 10))
+        },
+        data: orders
+    });
+});
+
+exports.getOrderById = catchAsync(async (req, res, next) => {
+    const order = await HomemadeFoodOrder.findById(req.params.id);
+
+    if (!order) {
+        return next(new AppError('No order found with that ID', 404));
+    }
+
+    res.status(200).json({
+        success: true,
+        data: order
+    });
+});
+
+exports.updateOrderStatus = catchAsync(async (req, res, next) => {
+    const { status, adminNotes } = req.body;
+
+    const order = await HomemadeFoodOrder.findByIdAndUpdate(
+        req.params.id,
+        { status, adminNotes },
+        { new: true, runValidators: true }
+    );
+
+    if (!order) {
+        return next(new AppError('No order found with that ID', 404));
+    }
+
+    res.status(200).json({
+        success: true,
+        data: order
+    });
+});
+
+exports.getAnalytics = catchAsync(async (req, res, next) => {
+    // Basic aggregation for dashboard
+    const stats = await HomemadeFoodOrder.aggregate([
+        {
+            $group: {
+                _id: null,
+                totalOrders: { $sum: 1 },
+                totalRevenue: { $sum: '$finalAmount' },
+                avgOrderValue: { $avg: '$finalAmount' },
+                totalDelivered: {
+                    $sum: { $cond: [{ $eq: ['$status', 'delivered'] }, 1, 0] }
+                },
+                totalPending: {
+                    $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] }
+                }
+            }
+        }
+    ]);
+
+    const summary = stats.length > 0 ? stats[0] : {
+        totalOrders: 0,
+        totalRevenue: 0,
+        avgOrderValue: 0,
+        totalDelivered: 0,
+        totalPending: 0
+    };
+
+    res.status(200).json({
+        success: true,
+        data: {
+            summary
+        }
+    });
+});

@@ -16,4 +16,19 @@ router.patch('/update', dailyMenuController.updateMenu);
 router.patch('/order/:id/confirm', dailyMenuController.confirmOrder);
 router.get('/dashboard', dailyMenuController.getDashboardStats);
 
+// Generic CRUD Routes (Merged)
+// Food Items
+router.get('/', dailyMenuController.getAllHomemadeFoods);
+router.post('/', dailyMenuController.createHomemadeFood);
+router.patch('/:id', dailyMenuController.updateHomemadeFood);
+router.delete('/:id', dailyMenuController.deleteHomemadeFood);
+
+// Analytics
+router.get('/analytics', dailyMenuController.getAnalytics);
+
+// Orders
+router.get('/orders', dailyMenuController.getAllOrders);
+router.get('/orders/:id', dailyMenuController.getOrderById);
+router.patch('/orders/:id/status', dailyMenuController.updateOrderStatus);
+
 module.exports = router;
