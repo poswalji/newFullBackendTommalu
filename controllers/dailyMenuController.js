@@ -142,8 +142,8 @@ exports.getTodayMenu = catchAsync(async (req, res, next) => {
     } else {
         responseData.product = {
             name: "DAILY HOME-MADE THALI",
-            price: 89,
-            includes: menu.weekdayMenu.fixedItems,
+            price: menu.weekdayMenu.fixedPrice || 89,
+            includes: menu.weekdayMenu.fixedItems || ['Chulhe ki Roti', 'Salad', 'Lahsun Chutney', 'Desi Chhach'],
             lunchSabji: menu.weekdayMenu.lunchSabji,
             dinnerSabji: menu.weekdayMenu.dinnerSabji
         };
@@ -164,12 +164,22 @@ exports.updateMenu = catchAsync(async (req, res, next) => {
         return next(new AppError('Daily menu not initialized', 404));
     }
 
-    const { lunchSabji, dinnerSabji, sundayItemName, sundayPrice, sundayDinnerOpen } = req.body;
+    const {
+        lunchSabji,
+        dinnerSabji,
+        weekdayPrice,
+        weekdayItems,
+        sundayItemName,
+        sundayPrice,
+        sundayDinnerOpen
+    } = req.body;
 
     if (menu.dayOfWeek !== 'Sunday') {
-        // Weekday: Only Sabji names editable
+        // Weekday: All fields editable now
         if (lunchSabji) menu.weekdayMenu.lunchSabji = lunchSabji;
         if (dinnerSabji) menu.weekdayMenu.dinnerSabji = dinnerSabji;
+        if (weekdayPrice) menu.weekdayMenu.fixedPrice = weekdayPrice;
+        if (weekdayItems) menu.weekdayMenu.fixedItems = weekdayItems;
     } else {
         // Sunday: Item, Price, Slots
         if (sundayItemName) menu.sundayMenu.specialItemName = sundayItemName;
@@ -207,6 +217,11 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
     const now = getIndianTime();
     const currentHour = now.getHours();
 
+    // 9 AM Start Time Check
+    if (currentHour < 9) {
+        return next(new AppError('Pre-orders open at 9:00 AM', 400));
+    }
+
     // Slot Validation & Time Check
     if (slot === 'Lunch') {
         if (currentHour >= 12) return next(new AppError('Lunch preorders closed (Cutoff: 12:00 PM)', 400));
@@ -230,7 +245,9 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
         finalPrice = sundayPrice * quantity;
     } else {
         selectedMenuItem = refs.dailyItem;
-        finalPrice = 89 * quantity;
+        // Use dynamic price from DB, default to 89 if missing
+        const dailyPrice = menu.weekdayMenu.fixedPrice || 89;
+        finalPrice = dailyPrice * quantity;
     }
 
     // Create Order

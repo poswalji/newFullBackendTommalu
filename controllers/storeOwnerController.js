@@ -4,6 +4,7 @@ const MenuItem = require("../models/menuItems");
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/appError');
 const { isValidObjectId, sanitizePagination, sanitizeString, sanitizeSearchQuery } = require('../utils/validators');
+const { isStoreOpen } = require('../utils/storeUtils');
 
 // ✅ Get Store Owner with better population
 exports.getStoreOwner = asyncHandler(async (req, res, next) => {
@@ -43,17 +44,17 @@ exports.getStoreOwner = asyncHandler(async (req, res, next) => {
 
 // ✅ Get All Stores with filters and pagination
 exports.getAllStores = asyncHandler(async (req, res) => {
-    const { 
-        page = 1, 
-        limit = 10, 
-        category, 
+    const {
+        page = 1,
+        limit = 10,
+        category,
         isOpen,
-        minRating 
+        minRating
     } = req.query;
 
     // Build filter object
     let filter = { available: true };
-    
+
     if (category) filter.category = category;
     if (isOpen !== undefined) filter.isOpen = isOpen === 'true';
     if (minRating) filter.rating = { $gte: parseFloat(minRating) };
@@ -80,25 +81,28 @@ exports.getAllStores = asyncHandler(async (req, res) => {
 
     res.status(200).json({
         success: true,
-        data: stores.map(store => ({
-            id: store._id,
-            storeName: store.storeName,
-            address: store.address,
-            phone: store.phone,
-            category: store.category,
-            description: store.description,
-            deliveryTime: store.deliveryTime,
-            minOrder: store.minOrder,
-            openingTime: store.openingTime,
-            closingTime: store.closingTime,
-            deliveryFee: store.deliveryFee,
-            isOpen: store.isOpen,
-            rating: store.rating,
-            totalReviews: store.totalReviews,
-            isVerified: store.isVerified,
-            status: store.status,
-            menu: store.menu
-        })),
+        data: stores.map(store => {
+            const openStatus = isStoreOpen(store);
+            return {
+                id: store._id,
+                storeName: store.storeName,
+                address: store.address,
+                phone: store.phone,
+                category: store.category,
+                description: store.description,
+                deliveryTime: store.deliveryTime,
+                minOrder: store.minOrder,
+                openingTime: store.openingTime,
+                closingTime: store.closingTime,
+                deliveryFee: store.deliveryFee,
+                isOpen: openStatus.isOpen, // Computed status
+                rating: store.rating,
+                totalReviews: store.totalReviews,
+                isVerified: store.isVerified,
+                status: store.status,
+                menu: store.menu
+            };
+        }),
         pagination: {
             page: options.page,
             pages: Math.ceil(total / options.limit),
@@ -111,17 +115,17 @@ exports.getAllStores = asyncHandler(async (req, res) => {
 // ✅ Create Store with enhanced validation
 exports.createStore = asyncHandler(async (req, res, next) => {
     const ownerId = req.user._id;
-    
+
     // Check if user is store owner
     if (req.user.role !== 'storeOwner') {
         return next(new AppError('Only store owners can create stores', 403));
     }
 
-    const { 
-        storeName, 
-        address, 
-        phone, 
-        category, 
+    const {
+        storeName,
+        address,
+        phone,
+        category,
         description,
         openingTime,
         closingTime,
@@ -131,15 +135,15 @@ exports.createStore = asyncHandler(async (req, res, next) => {
     } = req.body;
 
     // ✅ Check if user already has a store with same name
-    const existingStoreName = await Store.findOne({ 
-        ownerId, 
-        storeName 
+    const existingStoreName = await Store.findOne({
+        ownerId,
+        storeName
     });
     if (existingStoreName) {
         return next(new AppError('You already have a store with this name', 400));
     }
 
-   
+
 
     // ✅ Prepare location data if coordinates are provided
     let locationData = undefined;
@@ -225,7 +229,7 @@ exports.updateStore = asyncHandler(async (req, res, next) => {
     }
 
     const updates = { ...req.body };
-    
+
     // Sanitize string inputs
     if (updates.storeName) updates.storeName = sanitizeString(updates.storeName, 100);
     if (updates.address) updates.address = sanitizeString(updates.address, 500);
@@ -241,9 +245,9 @@ exports.updateStore = asyncHandler(async (req, res, next) => {
 
     // ✅ Check if license number already exists (for other stores)
     if (updates.licenseNumber) {
-        const existingStore = await Store.findOne({ 
-            licenseNumber: updates.licenseNumber, 
-            _id: { $ne: storeId } 
+        const existingStore = await Store.findOne({
+            licenseNumber: updates.licenseNumber,
+            _id: { $ne: storeId }
         });
         if (existingStore) {
             return next(new AppError('License number already exists', 400));
@@ -251,11 +255,11 @@ exports.updateStore = asyncHandler(async (req, res, next) => {
     }
 
     const updatedStore = await Store.findByIdAndUpdate(
-        storeId, 
-        updates, 
-        { 
-            new: true, 
-            runValidators: true 
+        storeId,
+        updates,
+        {
+            new: true,
+            runValidators: true
         }
     ).populate('menu');
 
@@ -321,28 +325,28 @@ exports.deleteStore = asyncHandler(async (req, res, next) => {
 
 // ✅ Enhanced Search Stores
 exports.searchStores = asyncHandler(async (req, res, next) => {
-    const { 
-        query, 
-        category, 
+    const {
+        query,
+        category,
         isOpen,
         foodType,
         minRating = 0,
         page = 1,
         limit = 10
     } = req.query;
-    
-    let filter = { 
+
+    let filter = {
         available: true,
         rating: { $gte: parseFloat(minRating) }
     };
-    
+
     if (query) {
         filter.$or = [
             { storeName: { $regex: query, $options: 'i' } },
             { description: { $regex: query, $options: 'i' } }
         ];
     }
-    
+
     if (category) {
         filter.category = category;
     }
@@ -352,7 +356,7 @@ exports.searchStores = asyncHandler(async (req, res, next) => {
     }
 
     const stores = await Store.find(filter)
-        .select('storeName address phone category deliveryTime minOrder deliveryFee isOpen rating totalReviews timesOrdered')
+        .select('storeName address phone category deliveryTime minOrder deliveryFee isOpen rating totalReviews timesOrdered openingTime closingTime description status')
         .limit(limit * 1)
         .skip((page - 1) * limit)
         .sort({ rating: -1, timesOrdered: -1 });
@@ -361,20 +365,25 @@ exports.searchStores = asyncHandler(async (req, res, next) => {
 
     res.status(200).json({
         success: true,
-        data: stores.map(store => ({
-            id: store._id,
-            storeName: store.storeName,
-            address: store.address,
-            phone: store.phone,
-            category: store.category,
-            deliveryTime: store.deliveryTime,
-            minOrder: store.minOrder,
-            deliveryFee: store.deliveryFee,
-            isOpen: store.isOpen,
-            rating: store.rating,
-            totalReviews: store.totalReviews,
-            timesOrdered: store.timesOrdered
-        })),
+        data: stores.map(store => {
+            const openStatus = isStoreOpen(store);
+            return {
+                id: store._id,
+                storeName: store.storeName,
+                address: store.address,
+                phone: store.phone,
+                category: store.category,
+                deliveryTime: store.deliveryTime,
+                minOrder: store.minOrder,
+                deliveryFee: store.deliveryFee,
+                isOpen: openStatus.isOpen, // Computed status
+                rating: store.rating,
+                totalReviews: store.totalReviews,
+                timesOrdered: store.timesOrdered,
+                openingTime: store.openingTime,
+                closingTime: store.closingTime
+            };
+        }),
         pagination: {
             page: parseInt(page),
             pages: Math.ceil(total / limit),
@@ -388,42 +397,45 @@ exports.searchStores = asyncHandler(async (req, res, next) => {
 exports.getStoresByCategory = asyncHandler(async (req, res, next) => {
     const { category } = req.params;
     const { page = 1, limit = 10 } = req.query;
-    
-    const stores = await Store.find({ 
+
+    const stores = await Store.find({
         category,
-        available: true 
+        available: true
     })
-    .populate({
-        path: "menu",
-        match: { isAvailable: true },
-        options: { limit: 5 },
-        select: 'name price image foodType category'
-    })
-    .limit(limit * 1)
-    .skip((page - 1) * limit)
-    .sort({ rating: -1 });
+        .populate({
+            path: "menu",
+            match: { isAvailable: true },
+            options: { limit: 5 },
+            select: 'name price image foodType category'
+        })
+        .limit(limit * 1)
+        .skip((page - 1) * limit)
+        .sort({ rating: -1 });
 
     const total = await Store.countDocuments({ category, available: true });
 
     res.status(200).json({
         success: true,
-        data: stores.map(store => ({
-            id: store._id,
-            storeName: store.storeName,
-            address: store.address,
-            phone: store.phone,
-            category: store.category,
-            description: store.description,
-            deliveryTime: store.deliveryTime,
-            minOrder: store.minOrder,
-            openingTime: store.openingTime,
-            closingTime: store.closingTime,
-            deliveryFee: store.deliveryFee,
-            isOpen: store.isOpen,
-            rating: store.rating,
-            totalReviews: store.totalReviews,
-            menu: store.menu || []
-        })),
+        data: stores.map(store => {
+            const openStatus = isStoreOpen(store);
+            return {
+                id: store._id,
+                storeName: store.storeName,
+                address: store.address,
+                phone: store.phone,
+                category: store.category,
+                description: store.description,
+                deliveryTime: store.deliveryTime,
+                minOrder: store.minOrder,
+                openingTime: store.openingTime,
+                closingTime: store.closingTime,
+                deliveryFee: store.deliveryFee,
+                isOpen: openStatus.isOpen, // Computed status
+                rating: store.rating,
+                totalReviews: store.totalReviews,
+                menu: store.menu || []
+            };
+        }),
         pagination: {
             page: parseInt(page),
             pages: Math.ceil(total / limit),
@@ -436,7 +448,7 @@ exports.getStoresByCategory = asyncHandler(async (req, res, next) => {
 // ✅ Get Store by ID with full details
 exports.getStoreById = asyncHandler(async (req, res, next) => {
     const storeId = req.params.id;
-    
+
     const store = await Store.findById(storeId)
         .populate({
             path: "menu",
@@ -447,11 +459,13 @@ exports.getStoreById = asyncHandler(async (req, res, next) => {
             path: "ownerId",
             select: "name phone email"
         });
-    
+
     if (!store || !store.available) {
         return next(new AppError('Store not found', 404));
     }
-    
+
+    const openStatus = isStoreOpen(store);
+
     res.status(200).json({
         success: true,
         data: {
@@ -468,14 +482,15 @@ exports.getStoreById = asyncHandler(async (req, res, next) => {
             openingTime: store.openingTime,
             closingTime: store.closingTime,
             deliveryFee: store.deliveryFee,
-            isOpen: store.isOpen,
+            isOpen: openStatus.isOpen, // Computed status
             status: store.status,
             isVerified: store.isVerified,
             verificationStatus: store.status, // Add for frontend compatibility
             rating: store.rating,
             totalReviews: store.totalReviews,
             menu: store.menu || [],
-            ownerId: store.ownerId
+            ownerId: store.ownerId,
+            nextOpen: openStatus.nextOpen // Optional: Tell frontend when it opens next
         }
     });
 });
@@ -493,27 +508,30 @@ exports.getMyStores = asyncHandler(async (req, res, next) => {
 
     res.status(200).json({
         success: true,
-        data: stores.map(store => ({
-            id: store._id,
-            storeName: store.storeName,
-            address: store.address,
-            phone: store.phone,
-            category: store.category,
-            description: store.description,
-            deliveryTime: store.deliveryTime,
-            minOrder: store.minOrder,
-            openingTime: store.openingTime,
-            closingTime: store.closingTime,
-            deliveryFee: store.deliveryFee,
-            isOpen: store.isOpen,
-            status: store.status,
-            isVerified: store.isVerified,
-            verificationStatus: store.status, // Add for frontend compatibility
-            rating: store.rating || 0,
-            totalReviews: store.totalReviews || 0,
-            menu: store.menu || [],
-            createdAt: store.createdAt
-        }))
+        data: stores.map(store => {
+            const openStatus = isStoreOpen(store);
+            return {
+                id: store._id,
+                storeName: store.storeName,
+                address: store.address,
+                phone: store.phone,
+                category: store.category,
+                description: store.description,
+                deliveryTime: store.deliveryTime,
+                minOrder: store.minOrder,
+                openingTime: store.openingTime,
+                closingTime: store.closingTime,
+                deliveryFee: store.deliveryFee,
+                isOpen: openStatus.isOpen,
+                status: store.status,
+                isVerified: store.isVerified,
+                verificationStatus: store.status, // Add for frontend compatibility
+                rating: store.rating || 0,
+                totalReviews: store.totalReviews || 0,
+                menu: store.menu || [],
+                createdAt: store.createdAt
+            };
+        })
     });
 });
 
@@ -584,5 +602,29 @@ exports.toggleStoreStatus = asyncHandler(async (req, res, next) => {
             isOpen: store.isOpen,
             status: store.status
         }
+    });
+});
+
+// Public Dashboard Stats
+exports.getPublicStats = asyncHandler(async (req, res, next) => {
+    const Store = require('../models/store');
+    const User = require('../models/user');
+    const Order = require('../models/order');
+
+    const totalStores = await Store.countDocuments({ isOpen: true });
+    const totalCustomers = await User.countDocuments({ role: 'customer' });
+    const totalOrders = await Order.countDocuments({ status: 'Delivered' });
+
+    // Create a default stats object if data is sparse
+    const data = {
+        totalCustomers: totalCustomers || 50,
+        totalOrders: totalOrders || 100,
+        averageRating: 4.8, // Hardcoded for now until review system aggregation is ready
+        totalStores: totalStores || 10
+    };
+
+    res.status(200).json({
+        success: true,
+        data
     });
 });

@@ -187,6 +187,19 @@ router.post('/homemade-food/order', homemadeFoodController.submitOrder);
  *       200:
  *         description: Order tracking details
  */
+// ✅ Public Stats
+/**
+ * @openapi
+ * /api/public/stats:
+ *   get:
+ *     tags: [Public]
+ *     summary: Get public statistics
+ *     responses:
+ *       200:
+ *         description: Stats returned successfully
+ */
+router.get('/stats', storeOwnerController.getPublicStats);
+
 router.get('/homemade-food/order/track', homemadeFoodController.trackOrder);
 
 module.exports = router;

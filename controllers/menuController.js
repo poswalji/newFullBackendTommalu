@@ -1,27 +1,7 @@
 const MenuItem = require('../models/menuItems');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/appError');
-
-// Utility function to check if the current time is within the store's operational hours
-const isStoreOpenByTime = (store) => {
-   // if (
-   //    !store ||
-   //    !store.openingTime ||
-   //    !store.closingTime ||
-   //    store.status !== 'active' ||
-   //    !store.isOpen
-   // ) {
-   //    return false;
-   // }
-   // const now = new Date();
-   // const currentTime = now.getHours() * 60 + now.getMinutes(); // Current time in minutes
-   // const [openHour, openMinute] = store.openingTime.split(':').map(Number);
-   // const [closeHour, closeMinute] = store.closingTime.split(':').map(Number);
-   // const openTime = openHour * 60 + openMinute;
-   // const closeTime = closeHour * 60 + closeMinute;
-
-   return true;
-};
+const { isStoreOpen } = require('../utils/storeUtils');
 
 exports.getAllProducts = asyncHandler(async (req, res, next) => {
    const {
@@ -95,29 +75,39 @@ exports.getAllProducts = asyncHandler(async (req, res, next) => {
    res.status(200).json({
       success: true,
       data: menuItems
-         .filter((item) => isStoreOpenByTime(item.storeId))
-         .map((item) => ({
-            id: item._id,
-            name: item.name,
-            price: item.price,
-            originalPrice: item.originalPrice,
-            category: item.category,
-            description: item.description,
-            isAvailable: item.isAvailable,
-            stockQuantity: item.stockQuantity,
-            image: item.images?.[0] || item.image,
-            foodType: item.foodType,
-            preparationTime: item.preparationTime,
-            discount: item.discount,
-            tags: item.tags,
-            customizations: item.customizations,
-            storeId: item.storeId?._id || item.storeId,
-            storeName: item.storeId?.storeName,
-            storeCategory: item.storeId?.category,
-            isPopular: item.timesOrdered > 15,
-            isBestSeller: item.isBestSeller,
-            frontendCategory: item.frontendCategory,
-         })),
+         .map((item) => {
+            const store = item.storeId;
+            let isStoreOpenVal = true; // Default true if no store details
+
+            if (store) {
+               const openStatus = isStoreOpen(store);
+               isStoreOpenVal = openStatus.isOpen;
+            }
+
+            return {
+               id: item._id,
+               name: item.name,
+               price: item.price,
+               originalPrice: item.originalPrice,
+               category: item.category,
+               description: item.description,
+               isAvailable: item.isAvailable,
+               stockQuantity: item.stockQuantity,
+               image: item.images?.[0] || item.image,
+               foodType: item.foodType,
+               preparationTime: item.preparationTime,
+               discount: item.discount,
+               tags: item.tags,
+               customizations: item.customizations,
+               storeId: item.storeId?._id || item.storeId,
+               storeName: item.storeId?.storeName,
+               storeCategory: item.storeId?.category,
+               isStoreOpen: isStoreOpenVal, // ✅ Computed status
+               isPopular: item.timesOrdered > 15,
+               isBestSeller: item.isBestSeller,
+               frontendCategory: item.frontendCategory,
+            };
+         }),
       pagination: {
          page: parseInt(page),
          limit: parseInt(limit),
@@ -165,6 +155,16 @@ exports.getStoreMenu = asyncHandler(async (req, res, next) => {
       .sort({ category: 1, name: 1 })
       .select('-__v');
 
+   const Store = require('../models/store');
+   const { isStoreOpen } = require('../utils/storeUtils');
+   const store = await Store.findById(storeId).select('storeName address phone category description openingTime closingTime deliveryTime minOrder deliveryFee isOpen rating totalReviews image ownerId');
+
+   if (!store) {
+      return next(new AppError('Store not found', 404));
+   }
+
+   const openStatus = isStoreOpen(store);
+
    res.status(200).json({
       success: true,
       data: menuItems.map((item) => ({
@@ -188,6 +188,24 @@ exports.getStoreMenu = asyncHandler(async (req, res, next) => {
          timesOrdered: item.timesOrdered,
          frontendCategory: item.frontendCategory,
       })),
+      store: {
+         id: store._id,
+         storeName: store.storeName,
+         address: store.address,
+         phone: store.phone,
+         category: store.category,
+         description: store.description,
+         openingTime: store.openingTime,
+         closingTime: store.closingTime,
+         deliveryTime: store.deliveryTime,
+         minOrder: store.minOrder,
+         deliveryFee: store.deliveryFee,
+         isOpen: openStatus.isOpen, // Computed status
+         rating: store.rating,
+         totalReviews: store.totalReviews,
+         image: store.image,
+         ownerId: store.ownerId
+      }
    });
 });
 

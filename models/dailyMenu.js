@@ -15,11 +15,10 @@ const dailyMenuSchema = new mongoose.Schema({
     weekdayMenu: {
         lunchSabji: { type: String, default: '' },
         dinnerSabji: { type: String, default: '' },
-        fixedPrice: { type: Number, default: 89, immutable: true }, // Locked
+        fixedPrice: { type: Number, default: 89 },
         fixedItems: {
             type: [String],
-            default: ['Chulhe ki Roti', 'Salad', 'Lahsun Chutney', 'Desi Chhach'],
-            immutable: true
+            default: ['Chulhe ki Roti', 'Salad', 'Lahsun Chutney', 'Desi Chhach']
         }
     },
     // Sunday Configuration
@@ -35,14 +34,5 @@ const dailyMenuSchema = new mongoose.Schema({
         revenue: { type: Number, default: 0 }
     }
 }, { timestamps: true });
-
-// Prevent Price Edit on Weekdays Middleware
-dailyMenuSchema.pre('save', function (next) {
-    if (this.dayOfWeek !== 'Sunday') {
-        this.weekdayMenu.fixedPrice = 89;
-        this.sundayMenu.price = 0; // Reset sunday price just in case
-    }
-    next();
-});
 
 module.exports = mongoose.model('DailyMenu', dailyMenuSchema);
