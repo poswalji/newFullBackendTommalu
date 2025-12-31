@@ -5,6 +5,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/appError');
 const Cart = require('../models/cartSchema'); // ✅ correct import path
 const Promotion = require('../models/promotion');
+const { isStoreOpen } = require('../utils/storeUtils');
 
 
 // NOTE: In production replace this in-memory store with Redis
@@ -44,7 +45,7 @@ const calculateFinalAmount = async (cart) => {
          total + (Number(item.price) || 0) * (Number(item.quantity) || 0),
       0
    );
-   
+
    // Get store-specific delivery charge
    const deliveryCharge = await calculateDeliveryCharge(itemsTotal, cart.storeId);
    let finalAmount = itemsTotal + deliveryCharge;
@@ -368,6 +369,21 @@ exports.getCart = asyncHandler(async (req, res, next) => {
       await cart.save();
    }
 
+   // ✅ Fetch store status if storeId exists
+   if (cart.storeId) {
+      try {
+         const store = await Store.findById(cart.storeId).select('openingTime closingTime description status isOpen available');
+         if (store) {
+            const status = isStoreOpen(store);
+            cart.isStoreOpen = status.isOpen;
+            cart.storeStatusReason = status.reason;
+            cart.storeNextOpen = status.nextOpen;
+         }
+      } catch (err) {
+         console.error('Error fetching store status for cart:', err);
+      }
+   }
+
    // ✅ Calculate delivery charge and final amount
    const amounts = await calculateFinalAmount(cart);
    cart.deliveryCharge = amounts.deliveryCharge;
@@ -530,7 +546,7 @@ exports.updateCartQuantity = asyncHandler(async (req, res, next) => {
       const itemId = i.menuItemId?.toString() || i.menuItemId;
       return itemId === menuItemId.toString() || itemId === menuItemId;
    });
-   
+
    if (!item) {
       return next(new AppError('Item not found in cart', 404));
    }
@@ -810,7 +826,7 @@ exports.getCartStatus = asyncHandler(async (req, res, next) => {
 
    // Calculate total amount
    const totalAmount = cart.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-   
+
    res.status(200).json({
       success: true,
       data: {

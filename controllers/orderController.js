@@ -85,7 +85,7 @@ const mongoose = require('mongoose');
 const Order = require("../models/orderSchema");
 const Promotion = require('../models/promotion');
 const asyncHandler = require('../utils/asyncHandler');
-const AppError = require('../utils/appError');   
+const AppError = require('../utils/appError');
 const User = require("../models/user");
 const Menu = require("../models/menuItems");
 const Store = require("../models/store");
@@ -93,14 +93,15 @@ const Cart = require("../models/cartSchema");
 const Payment = require("../models/payment");
 const notificationService = require('../services/notificationService');
 const { calculateFinalAmount } = require('./cartController');
+const { isStoreOpen } = require('../utils/storeUtils');
 
 // ✅ CREATE ORDER - Fixed to use authenticated user with fraud detection
-exports.createOrder = asyncHandler(async(req, res, next) => {
+exports.createOrder = asyncHandler(async (req, res, next) => {
     // Use req.user._id from authentication instead of req.body.userId
     const { items, discount, promoCode, finalPrice, deliveryAddress } = req.body;
     const userId = req.user._id; // ✅ From authentication middleware
-    
-    if(!items || items.length === 0 || finalPrice <= 0) {
+
+    if (!items || items.length === 0 || finalPrice <= 0) {
         return next(new AppError('Missing required fields or invalid data', 400));
     }
 
@@ -118,15 +119,26 @@ exports.createOrder = asyncHandler(async(req, res, next) => {
         return next(new AppError('Store ID not found for menu item', 400));
     }
 
+    // ✅ CHECK IF STORE IS OPEN
+    const store = await Store.findById(storeId);
+    if (!store) {
+        return next(new AppError('Store not found', 404));
+    }
+
+    const storeStatus = isStoreOpen(store);
+    if (!storeStatus.isOpen) {
+        return next(new AppError(`Store is currently closed: ${storeStatus.reason}. Please try again later.`, 400));
+    }
+
     // Verify user is a customer
     const user = await User.findById(userId);
-    if(!user || user.role !== 'customer') {
+    if (!user || user.role !== 'customer') {
         return next(new AppError('Only customers can create orders', 400));
     }
-    
+
     // ✅ FRAUD DETECTION (skip in test environment)
     const fraudFlags = [];
-    
+
     // Skip fraud detection in test environment
     if (process.env.NODE_ENV !== 'test') {
         // 1. Check for multiple recent cancelled orders
@@ -135,7 +147,7 @@ exports.createOrder = asyncHandler(async(req, res, next) => {
             status: 'Cancelled',
             createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } // Last 24 hours
         });
-        
+
         if (recentCancelled > 3) {
             fraudFlags.push({
                 type: 'high_cancellation_rate',
@@ -143,14 +155,14 @@ exports.createOrder = asyncHandler(async(req, res, next) => {
                 message: `User has ${recentCancelled} cancelled orders in last 24 hours`
             });
         }
-        
+
         // 2. Check for abnormal order value (very high)
         const avgOrderValue = await Order.aggregate([
             { $match: { userId } },
             { $group: { _id: null, avg: { $avg: '$finalPrice' } } }
         ]);
         const userAvgOrderValue = avgOrderValue[0]?.avg || 0;
-        
+
         if (finalPrice > userAvgOrderValue * 5 && userAvgOrderValue > 0) {
             fraudFlags.push({
                 type: 'abnormal_order_value',
@@ -158,13 +170,13 @@ exports.createOrder = asyncHandler(async(req, res, next) => {
                 message: `Order value ${finalPrice} is significantly higher than user average ${userAvgOrderValue}`
             });
         }
-        
+
         // 3. Check for rapid successive orders (potential bot/spam)
         const recentOrders = await Order.countDocuments({
             userId,
             createdAt: { $gte: new Date(Date.now() - 60 * 60 * 1000) } // Last hour
         });
-        
+
         if (recentOrders > 10) {
             fraudFlags.push({
                 type: 'rapid_ordering',
@@ -172,14 +184,14 @@ exports.createOrder = asyncHandler(async(req, res, next) => {
                 message: `User placed ${recentOrders} orders in the last hour`
             });
         }
-        
+
         // 4. Check for multiple rejected orders
         const recentRejected = await Order.countDocuments({
             userId,
             status: 'Rejected',
             createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } // Last 7 days
         });
-        
+
         if (recentRejected > 5) {
             fraudFlags.push({
                 type: 'high_rejection_rate',
@@ -188,31 +200,31 @@ exports.createOrder = asyncHandler(async(req, res, next) => {
             });
         }
     }
-    
+
     // 5. Check if user account is suspended
     if (user.status === 'suspended') {
         return next(new AppError('Your account is suspended. Please contact support.', 403));
     }
-    
+
     // If high severity fraud detected, block order
     const highSeverityFraud = fraudFlags.filter(f => f.severity === 'high');
     if (highSeverityFraud.length > 0) {
         // Log fraud attempt
         // TODO: Create fraud detection log entry
-        
+
         return next(new AppError('Order flagged for review due to suspicious activity. Please contact support.', 403));
     }
-    
+
     // ✅ VALIDATE PROMOTION CODE IF PROVIDED
     let validatedDiscount = discount || 0;
     let validatedPromoCode = promoCode || null;
-    
+
     if (promoCode) {
         // Calculate order amount before discount for validation
         const itemsTotal = items.reduce((sum, item) => {
             return sum + (Number(item.itemPrice) || 0) * (Number(item.quantity) || 1);
         }, 0);
-        
+
         // Validate promotion code
         const promotionResult = await Promotion.findValidByCode(
             promoCode,
@@ -220,41 +232,41 @@ exports.createOrder = asyncHandler(async(req, res, next) => {
             itemsTotal, // Use original amount before discount
             storeId
         );
-        
+
         if (!promotionResult.promotion || promotionResult.reason) {
             return next(new AppError(
-                promotionResult.reason || 'Invalid or expired promotion code', 
+                promotionResult.reason || 'Invalid or expired promotion code',
                 400
             ));
         }
-        
+
         // Recalculate discount using validated promotion
         validatedDiscount = promotionResult.promotion.calculateDiscount(itemsTotal);
         validatedPromoCode = promotionResult.promotion.code;
-        
+
         // Track promotion usage (will be linked to order after creation)
         // Note: We'll track usage after order is created to ensure order ID is available
     }
-    
+
     // ✅ Force payment method to cash_on_delivery only
     const paymentMethod = 'cash_on_delivery';
-    
+
     // Recalculate final price with validated discount
     const itemsTotal = items.reduce((sum, item) => {
         return sum + (Number(item.itemPrice) || 0) * (Number(item.quantity) || 1);
     }, 0);
     const deliveryCharge = 30; // Default, should be calculated from store
     const validatedFinalPrice = itemsTotal + deliveryCharge - validatedDiscount;
-    
+
     // Create order with fraud flags in metadata
     const newOrder = await Order.create({
-        storeId, 
-        userId, 
-        items, 
-        discount: validatedDiscount, 
+        storeId,
+        userId,
+        items,
+        discount: validatedDiscount,
         promoCode: validatedPromoCode,
         deliveryCharge: deliveryCharge, // Store delivery charge
-        finalPrice: validatedFinalPrice, 
+        finalPrice: validatedFinalPrice,
         deliveryAddress,
         paymentMethod, // ✅ Only cash on delivery
         metadata: {
@@ -262,7 +274,7 @@ exports.createOrder = asyncHandler(async(req, res, next) => {
             fraudChecked: true
         }
     });
-    
+
     // ✅ Track promotion usage after order creation
     if (validatedPromoCode && promoCode) {
         try {
@@ -278,17 +290,17 @@ exports.createOrder = asyncHandler(async(req, res, next) => {
             console.error('Error tracking promotion usage:', promoError);
         }
     }
-    
+
     // ✅ Automatically create payment record for the order
     try {
         const store = await Store.findById(storeId);
         const commissionRate = store?.commissionRate || 10;
-        
+
         // ✅ FIXED: Calculate commission on final amount (what customer actually pays)
         // Commission is calculated on the amount the customer pays, not the original amount
         const originalAmount = itemsTotal + deliveryCharge; // Amount before discount
         const finalAmount = newOrder.finalPrice; // Amount after discount (what customer pays)
-        
+
         const payment = await Payment.create({
             orderId: newOrder._id,
             userId: newOrder.userId,
@@ -303,14 +315,14 @@ exports.createOrder = asyncHandler(async(req, res, next) => {
                 discountAmount: validatedDiscount
             }
         });
-        
+
         // ✅ FIXED: Calculate commission on final amount (what customer pays)
         // Commission = (finalAmount × commissionRate) / 100
         // Store Payout = finalAmount - commissionAmount
         payment.commissionAmount = (finalAmount * commissionRate) / 100;
         payment.storePayoutAmount = finalAmount - payment.commissionAmount;
         await payment.save();
-        
+
         // Link payment to order
         newOrder.paymentId = payment._id;
         await newOrder.save();
@@ -319,35 +331,37 @@ exports.createOrder = asyncHandler(async(req, res, next) => {
         console.error('Error creating payment record:', paymentError);
         // Order is still created, payment can be created manually later if needed
     }
-    
+
     // ✅ Send real-time notifications via Firebase Realtime Database
     // Notify store owner about new order
     notificationService.notifyStoreOwnerNewOrder(newOrder).catch(err => {
         console.error('Error notifying store owner:', err);
     });
-    
+
     // Notify admin about new order
     notificationService.notifyAdminNewOrder(newOrder).catch(err => {
         console.error('Error notifying admin:', err);
     });
-    
+
     // Notify customer about order creation
+    const itemSummary = newOrder.items.map(item => `${item.quantity}x ${item.itemName || 'Item'}`).join(', ');
     notificationService.createNotification({
         userId: newOrder.userId,
         title: 'Order Placed Successfully',
-        message: `Your order #${newOrder._id.toString().slice(-6)} has been placed successfully`,
+        message: `Your order #${newOrder._id.toString().slice(-6)} (${itemSummary}) has been placed successfully`,
         type: 'order_created',
         relatedId: newOrder._id,
         relatedModel: 'Order',
         metadata: {
             orderId: newOrder._id,
             finalPrice: newOrder.finalPrice,
-            storeId: newOrder.storeId
+            storeId: newOrder.storeId,
+            itemSummary
         }
     }).catch(err => {
         console.error('Error creating customer notification:', err);
     });
-    
+
     res.status(201).json({
         success: true,
         data: {
@@ -368,10 +382,10 @@ exports.createOrder = asyncHandler(async(req, res, next) => {
 });
 
 // ✅ GET CUSTOMER ORDERS - Fixed to use authenticated user
-exports.getCustomerOrders = asyncHandler(async(req, res, next) => {
+exports.getCustomerOrders = asyncHandler(async (req, res, next) => {
     // Use req.user._id instead of req.params.customerId
     const customerId = req.user._id;
-    
+
     const user = await User.findById(customerId).populate({
         path: 'orders',
         select: 'items finalPrice status createdAt deliveryAddress storeId rejectionReason cancellationReason',
@@ -380,11 +394,11 @@ exports.getCustomerOrders = asyncHandler(async(req, res, next) => {
             select: 'storeName'
         }
     });
-    
-    if(!user || user.role !== 'customer') {
+
+    if (!user || user.role !== 'customer') {
         return next(new AppError('Customer not found', 404));
-    }           
-    
+    }
+
     res.status(200).json({
         success: true,
         data: user.orders.map(order => ({
@@ -405,20 +419,20 @@ exports.getCustomerOrders = asyncHandler(async(req, res, next) => {
             storeName: order.storeId?.storeName
         })),
         total: user.orders.length
-    }); 
+    });
 });
 
 // ✅ UPDATE ORDER STATUS - Enhanced with rejection reason
 exports.updateOrderStatus = asyncHandler(async (req, res, next) => {
     const orderId = req.params.orderId;
-    const { status, rejectionReason, cancellationReason } = req.body; 
-    
+    const { status, rejectionReason, cancellationReason } = req.body;
+
     // ✅ Validate status with Rejected option
     const validStatuses = [
-        "Pending", "Confirmed", "OutForDelivery", 
+        "Pending", "Confirmed", "OutForDelivery",
         "Delivered", "Cancelled", "Rejected"
     ];
-    
+
     if (!validStatuses.includes(status)) {
         return next(new AppError('Invalid order status', 400));
     }
@@ -430,11 +444,11 @@ exports.updateOrderStatus = asyncHandler(async (req, res, next) => {
     }
 
     // 2) Check if the current user owns the store that this order belongs to
-    const store = await Store.findOne({ 
-        _id: order.storeId, 
-        ownerId: req.user._id 
+    const store = await Store.findOne({
+        _id: order.storeId,
+        ownerId: req.user._id
     });
-    
+
     if (!store) {
         return next(new AppError('Not authorized to update orders for this store', 403));
     }
@@ -462,12 +476,12 @@ exports.updateOrderStatus = asyncHandler(async (req, res, next) => {
 
     // ✅ Prepare update data with reasons
     const updateData = { status };
-    
+
     // Add rejection reason if provided and status is Rejected
     if (status === "Rejected" && rejectionReason) {
         updateData.rejectionReason = rejectionReason;
     }
-    
+
     // Add cancellation reason if provided and status is Cancelled
     if (status === "Cancelled" && cancellationReason) {
         updateData.cancellationReason = cancellationReason;
@@ -479,14 +493,14 @@ exports.updateOrderStatus = asyncHandler(async (req, res, next) => {
         updateData,
         { new: true, runValidators: true }
     ).populate('userId', 'name email phone')
-     .populate('storeId', 'storeName');
-    
+        .populate('storeId', 'storeName');
+
     // ✅ Send real-time notifications via Firebase Realtime Database
     // Notify customer about status update
     notificationService.notifyCustomerOrderUpdate(updatedOrder, status).catch(err => {
         console.error('Error notifying customer:', err);
     });
-    
+
     // Notify store owner about status update
     try {
         const store = await Store.findById(updatedOrder.storeId?._id || updatedOrder.storeId).populate('ownerId');
@@ -510,7 +524,7 @@ exports.updateOrderStatus = asyncHandler(async (req, res, next) => {
     } catch (err) {
         console.error('Error notifying store owner:', err);
     }
-    
+
     // Notify admin about status update (for all statuses)
     try {
         const admins = await User.find({ role: 'admin' }).select('_id');
@@ -541,14 +555,14 @@ exports.updateOrderStatus = asyncHandler(async (req, res, next) => {
             console.error('Error notifying admin about delivery assignment:', err);
         });
     }
-    
+
     // ✅ Special handling: When order is Delivered, mark COD payment as completed
     if (status === 'Delivered') {
         try {
             // Set deliveredTime
             updatedOrder.deliveredTime = new Date();
             await updatedOrder.save();
-            
+
             // Update payment status
             const payment = await Payment.findOne({ orderId: updatedOrder._id });
             if (payment && payment.paymentMethod === 'cash_on_delivery' && payment.status === 'pending') {
@@ -561,7 +575,7 @@ exports.updateOrderStatus = asyncHandler(async (req, res, next) => {
             // Don't fail the order status update if payment update fails
         }
     }
-    
+
     // ✅ Special handling: When order is Rejected, cancel payment
     if (status === 'Rejected') {
         try {
@@ -582,7 +596,7 @@ exports.updateOrderStatus = asyncHandler(async (req, res, next) => {
             // Don't fail the order status update if payment update fails
         }
     }
-    
+
     res.status(200).json({
         success: true,
         message: `Order status updated to ${status}`,
@@ -613,14 +627,14 @@ exports.getStoreOrders = asyncHandler(async (req, res, next) => {
     // Get all stores owned by this user
     const stores = await Store.find({ ownerId: req.user._id });
     const storeIds = stores.map(store => store._id);
-    
+
     // Find orders for these stores
     const orders = await Order.find({ storeId: { $in: storeIds } })
         .populate('userId', 'name email phone')
         .populate('storeId', 'storeName')
         .populate('items.menuItemId', 'name price')
         .sort({ createdAt: -1 });
-    
+
     res.status(200).json({
         success: true,
         data: orders.map(order => ({
@@ -656,7 +670,7 @@ exports.createOrderFromCart = asyncHandler(async (req, res, next) => {
 
     // Get cart for the user - Cart is a separate model, not embedded in User
     const cart = await Cart.findOne({ userId }).populate('items.menuItemId', 'name price image');
-    
+
     if (!cart || !cart.items || cart.items.length === 0) {
         return next(new AppError('Cart is empty', 400));
     }
@@ -669,12 +683,22 @@ exports.createOrderFromCart = asyncHandler(async (req, res, next) => {
         return next(new AppError('Invalid cart data', 400));
     }
 
+    // ✅ CHECK IF STORE IS OPEN
+    const storeForCart = await Store.findById(cart.storeId);
+    if (!storeForCart) {
+        return next(new AppError('Store not found', 404));
+    }
+    const cartStoreStatus = isStoreOpen(storeForCart);
+    if (!cartStoreStatus.isOpen) {
+        return next(new AppError(`Store is currently closed: ${cartStoreStatus.reason}. Cannot place order.`, 400));
+    }
+
     // ✅ FIXED: Use menuItemId (schema ke according) and ensure all required fields
     // If menuItemId is not populated, fetch the menu item to get name and image
     const items = await Promise.all(cart.items.map(async (item) => {
         let menuItem = item.menuItemId;
         const menuItemId = menuItem?._id || menuItem || item.menuItemId;
-        
+
         // If menuItem is not populated (just an ObjectId), fetch it
         if (!menuItem || typeof menuItem === 'object' && !menuItem.name) {
             const Menu = require('../models/menuItems');
@@ -683,18 +707,18 @@ exports.createOrderFromCart = asyncHandler(async (req, res, next) => {
                 throw new Error(`Menu item not found: ${menuItemId}`);
             }
         }
-        
+
         const itemName = menuItem?.name || item.itemName;
         const itemPrice = menuItem?.price || item.price;
         const image = menuItem?.image || (Array.isArray(menuItem?.images) && menuItem.images[0]) || item.image || '/placeholder-image.jpg';
-        
+
         if (!itemName) {
             throw new Error(`Item name is missing for menuItemId: ${menuItemId}`);
         }
         if (!image) {
             throw new Error(`Item image is missing for menuItemId: ${menuItemId}`);
         }
-        
+
         return {
             menuItemId,
             itemName,
@@ -710,14 +734,14 @@ exports.createOrderFromCart = asyncHandler(async (req, res, next) => {
     const deliveryCharge = amounts.deliveryCharge;
     const cartDiscount = cart.discount?.discountAmount || 0;
     const cartPromoCode = cart.discount?.code || null;
-    
+
     // ✅ VALIDATE PROMOTION CODE IF PROVIDED
     let validatedDiscount = cartDiscount;
     let validatedPromoCode = cartPromoCode;
-    
+
     if (cartPromoCode) {
         const originalAmount = itemsTotal + deliveryCharge; // Amount before discount
-        
+
         // Validate promotion code
         const promotionResult = await Promotion.findValidByCode(
             cartPromoCode,
@@ -725,19 +749,19 @@ exports.createOrderFromCart = asyncHandler(async (req, res, next) => {
             originalAmount,
             cart.storeId
         );
-        
+
         if (!promotionResult.promotion || promotionResult.reason) {
             return next(new AppError(
-                promotionResult.reason || 'Invalid or expired promotion code', 
+                promotionResult.reason || 'Invalid or expired promotion code',
                 400
             ));
         }
-        
+
         // Recalculate discount using validated promotion
         validatedDiscount = promotionResult.promotion.calculateDiscount(originalAmount);
         validatedPromoCode = promotionResult.promotion.code;
     }
-    
+
     const finalPrice = itemsTotal + deliveryCharge - validatedDiscount;
 
     // Create order with delivery charge stored separately for transparency
@@ -753,7 +777,7 @@ exports.createOrderFromCart = asyncHandler(async (req, res, next) => {
         paymentMethod: 'cash_on_delivery', // ✅ Only COD
         status: "Pending"
     });
-    
+
     // ✅ Track promotion usage after order creation
     if (validatedPromoCode && cartPromoCode) {
         try {
@@ -767,17 +791,17 @@ exports.createOrderFromCart = asyncHandler(async (req, res, next) => {
             console.error('Error tracking promotion usage:', promoError);
         }
     }
-    
+
     // ✅ Automatically create payment record for the order
     try {
         const store = await Store.findById(cart.storeId);
         const commissionRate = store?.commissionRate || 10;
-        
+
         // ✅ FIXED: Calculate commission on final amount (what customer actually pays)
         // Commission is calculated on the amount the customer pays, not the original amount
         const originalAmount = itemsTotal + deliveryCharge; // Amount before discount
         const finalAmount = newOrder.finalPrice; // Amount after discount (what customer pays)
-        
+
         const payment = await Payment.create({
             orderId: newOrder._id,
             userId: newOrder.userId,
@@ -792,14 +816,14 @@ exports.createOrderFromCart = asyncHandler(async (req, res, next) => {
                 discountAmount: validatedDiscount
             }
         });
-        
+
         // ✅ FIXED: Calculate commission on final amount (what customer pays)
         // Commission = (finalAmount × commissionRate) / 100
         // Store Payout = finalAmount - commissionAmount
         payment.commissionAmount = (finalAmount * commissionRate) / 100;
         payment.storePayoutAmount = finalAmount - payment.commissionAmount;
         await payment.save();
-        
+
         // Link payment to order
         newOrder.paymentId = payment._id;
         await newOrder.save();
@@ -827,24 +851,26 @@ exports.createOrderFromCart = asyncHandler(async (req, res, next) => {
     notificationService.notifyStoreOwnerNewOrder(newOrder).catch(err => {
         console.error('Error notifying store owner:', err);
     });
-    
+
     // Notify admin about new order
     notificationService.notifyAdminNewOrder(newOrder).catch(err => {
         console.error('Error notifying admin:', err);
     });
-    
+
     // Notify customer about order creation
+    const itemSummary = newOrder.items.map(item => `${item.quantity}x ${item.itemName || 'Item'}`).join(', ');
     notificationService.createNotification({
         userId: newOrder.userId,
         title: 'Order Placed Successfully',
-        message: `Your order #${newOrder._id.toString().slice(-6)} has been placed successfully`,
+        message: `Your order #${newOrder._id.toString().slice(-6)} (${itemSummary}) has been placed successfully`,
         type: 'order_created',
         relatedId: newOrder._id,
         relatedModel: 'Order',
         metadata: {
             orderId: newOrder._id,
             finalPrice: newOrder.finalPrice,
-            storeId: newOrder.storeId
+            storeId: newOrder.storeId,
+            itemSummary
         }
     }).catch(err => {
         console.error('Error creating customer notification:', err);
@@ -855,7 +881,7 @@ exports.createOrderFromCart = asyncHandler(async (req, res, next) => {
         const user = await User.findById(userId);
         if (user && user.addresses) {
             // Check if this address already exists in user's saved addresses
-            const addressExists = user.addresses.some(addr => 
+            const addressExists = user.addresses.some(addr =>
                 addr.street === deliveryAddress.street &&
                 addr.city === deliveryAddress.city &&
                 addr.pincode === deliveryAddress.pincode
@@ -926,7 +952,7 @@ exports.cancelOrder = asyncHandler(async (req, res, next) => {
     order.status = 'Cancelled';
     order.cancellationReason = cancellationReason;
     order.cancelledTime = new Date();
-    
+
     await order.save();
 
     // ✅ Update payment status when order is cancelled
@@ -968,7 +994,7 @@ exports.cancelOrder = asyncHandler(async (req, res, next) => {
             console.error('Error notifying store owner:', err);
         });
     }
-    
+
     // Notify customer about cancellation
     notificationService.createNotification({
         userId: order.userId,
@@ -1013,11 +1039,11 @@ exports.getAllOrders = asyncHandler(async (req, res, next) => {
     const filter = {};
     if (status) filter.status = status;
     const orders = await Order.find(filter)
-      .populate('userId', 'name email')
-      .populate('storeId', 'storeName')
-      .sort({ createdAt: -1 });
-    res.status(200).json({ 
-        success: true, 
+        .populate('userId', 'name email')
+        .populate('storeId', 'storeName')
+        .sort({ createdAt: -1 });
+    res.status(200).json({
+        success: true,
         data: orders.map(order => ({
             id: order._id,
             userId: order.userId,
@@ -1036,7 +1062,7 @@ exports.getAllOrders = asyncHandler(async (req, res, next) => {
             customerEmail: order.userId?.email,
             storeName: order.storeId?.storeName
         })),
-        total: orders.length 
+        total: orders.length
     });
 });
 
@@ -1046,32 +1072,32 @@ exports.getOrderById = asyncHandler(async (req, res, next) => {
     if (!req.params.id || !mongoose.Types.ObjectId.isValid(req.params.id)) {
         return next(new AppError('Invalid order ID format', 400));
     }
-    
+
     const order = await Order.findById(req.params.id)
-      .populate('userId', 'name email')
-      .populate('storeId', 'storeName')
-      .populate('items.menuItemId', 'name price');
+        .populate('userId', 'name email')
+        .populate('storeId', 'storeName')
+        .populate('items.menuItemId', 'name price');
     if (!order) return next(new AppError('Order not found', 404));
 
     const isOwner = order.userId && order.userId._id.toString() === req.user._id.toString();
     const isAdmin = req.user.role === 'admin';
     const isDelivery = req.user.role === 'delivery';
-    
+
     // Check if user is store owner of the order's store
     let isStoreOwner = false;
     if (req.user.role === 'storeOwner') {
-        const store = await Store.findOne({ 
-            _id: order.storeId, 
-            ownerId: req.user._id 
+        const store = await Store.findOne({
+            _id: order.storeId,
+            ownerId: req.user._id
         });
         isStoreOwner = !!store;
     }
-    
+
     if (!isOwner && !isAdmin && !isDelivery && !isStoreOwner) {
         return next(new AppError('Not authorized to view this order', 403));
     }
-    res.status(200).json({ 
-        success: true, 
+    res.status(200).json({
+        success: true,
         data: {
             id: order._id,
             userId: order.userId,
@@ -1097,21 +1123,21 @@ exports.getOrderById = asyncHandler(async (req, res, next) => {
 // ✅ Public order tracking (limited info for order confirmation)
 exports.getOrderPublic = asyncHandler(async (req, res, next) => {
     const orderId = req.params.orderId;
-    
+
     if (!mongoose.Types.ObjectId.isValid(orderId)) {
         return next(new AppError('Invalid order ID format', 400));
     }
-    
+
     const order = await Order.findById(orderId)
-      .populate('storeId', 'storeName')
-      .select('status createdAt updatedAt finalPrice storeId items');
-    
+        .populate('storeId', 'storeName')
+        .select('status createdAt updatedAt finalPrice storeId items');
+
     if (!order) {
         return next(new AppError('Order not found', 404));
     }
-    
-    res.status(200).json({ 
-        success: true, 
+
+    res.status(200).json({
+        success: true,
         data: {
             id: order._id,
             status: order.status,
@@ -1129,7 +1155,7 @@ exports.getOrderPublic = asyncHandler(async (req, res, next) => {
 exports.updateOrderStatusAdmin = asyncHandler(async (req, res, next) => {
     const { status } = req.body;
     const validStatuses = [
-        "Pending", "Confirmed", "OutForDelivery", 
+        "Pending", "Confirmed", "OutForDelivery",
         "Delivered", "Cancelled", "Rejected"
     ];
     if (!validStatuses.includes(status)) {
@@ -1141,14 +1167,14 @@ exports.updateOrderStatusAdmin = asyncHandler(async (req, res, next) => {
         { new: true, runValidators: true }
     ).populate('userId', 'name email').populate('storeId', 'storeName');
     if (!updated) return next(new AppError('Order not found', 404));
-    
+
     // ✅ Special handling: When order is Delivered, mark COD payment as completed
     if (status === 'Delivered') {
         try {
             // Set deliveredTime
             updated.deliveredTime = new Date();
             await updated.save();
-            
+
             // Update payment status
             const payment = await Payment.findOne({ orderId: updated._id });
             if (payment && payment.paymentMethod === 'cash_on_delivery' && payment.status === 'pending') {
@@ -1161,7 +1187,7 @@ exports.updateOrderStatusAdmin = asyncHandler(async (req, res, next) => {
             // Don't fail the order status update if payment update fails
         }
     }
-    
+
     // ✅ Special handling: When order is Rejected, cancel payment
     if (status === 'Rejected') {
         try {
@@ -1182,23 +1208,23 @@ exports.updateOrderStatusAdmin = asyncHandler(async (req, res, next) => {
             // Don't fail the order status update if payment update fails
         }
     }
-    
+
     // ✅ Send real-time notifications via Firebase Realtime Database
     // Notify customer about status update
     notificationService.notifyCustomerOrderUpdate(updated, status).catch(err => {
         console.error('Error notifying customer:', err);
     });
-    
+
     // Special handling: Notify admin as delivery boy when order is OutForDelivery
     if (status === 'OutForDelivery') {
         notificationService.notifyAdminDeliveryAssignment(updated).catch(err => {
             console.error('Error notifying admin about delivery assignment:', err);
         });
     }
-    
-    res.status(200).json({ 
-        success: true, 
-        message: `Order status updated to ${status}`, 
+
+    res.status(200).json({
+        success: true,
+        message: `Order status updated to ${status}`,
         data: {
             id: updated._id,
             userId: updated.userId,
