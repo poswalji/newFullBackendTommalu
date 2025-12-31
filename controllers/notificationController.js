@@ -74,6 +74,21 @@ exports.deleteNotification = asyncHandler(async (req, res, next) => {
   });
 });
 
+// ✅ Delete all notifications
+exports.deleteAllNotifications = asyncHandler(async (req, res, next) => {
+  const userId = req.user._id;
+
+  const result = await notificationService.deleteAllNotifications(userId);
+
+  res.status(200).json({
+    success: true,
+    message: 'All notifications deleted',
+    data: {
+      deletedCount: result.deletedCount
+    }
+  });
+});
+
 // ✅ Get unread count
 exports.getUnreadCount = asyncHandler(async (req, res, next) => {
   const userId = req.user._id;

@@ -68,11 +68,11 @@ exports.createNotification = async ({
             const order = await Order.findById(relatedId)
               .populate('userId', 'name email phone')
               .populate('storeId', 'storeName');
-            
+
             if (order) {
               const orderNumber = order._id.toString().slice(-6);
               const customerName = order.userId?.name || order.userId?.name || 'Customer';
-              
+
               if (type === 'order_created') {
                 // Send new order email to customer
                 if (user.role === 'customer') {
@@ -154,7 +154,7 @@ exports.notifyStoreOwnerNewOrder = async (order) => {
       if (storeOwner && storeOwner.email) {
         const orderPopulated = await Order.findById(order._id)
           .populate('userId', 'name email');
-        
+
         emailService.sendNewOrderEmailToStoreOwner(storeOwner.email, {
           orderId: order._id,
           orderNumber: order._id.toString().slice(-6),
@@ -224,7 +224,7 @@ exports.notifyCustomerOrderUpdate = async (order, status) => {
       const orderPopulated = await Order.findById(order._id)
         .populate('userId', 'name email')
         .populate('storeId', 'storeName');
-      
+
       // ✅ FIXED: Reuse customerUserId (already defined above)
       emitToUser(customerUserId, 'order_status_update', {
         orderId: order._id?.toString() || order._id,
@@ -253,7 +253,7 @@ exports.notifyCustomerOrderUpdate = async (order, status) => {
         const orderPopulated = await Order.findById(order._id)
           .populate('userId', 'name email')
           .populate('storeId', 'storeName');
-        
+
         emailService.sendOrderTrackingEmail(customer.email, {
           orderId: order._id,
           status,
@@ -464,5 +464,13 @@ exports.deleteNotification = async (notificationId, userId) => {
     userId
   });
   return notification;
+};
+
+/**
+ * Delete all notifications for a user
+ */
+exports.deleteAllNotifications = async (userId) => {
+  const result = await Notification.deleteMany({ userId });
+  return result;
 };
 

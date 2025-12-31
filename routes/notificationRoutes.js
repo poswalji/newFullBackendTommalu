@@ -38,6 +38,20 @@ router.get('/', notificationController.getNotifications);
 
 /**
  * @openapi
+ * /api/notifications:
+ *   delete:
+ *     tags: [Notifications]
+ *     summary: Delete all notifications
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: All notifications deleted
+ */
+router.delete('/', notificationController.deleteAllNotifications);
+
+/**
+ * @openapi
  * /api/notifications/unread-count:
  *   get:
  *     tags: [Notifications]

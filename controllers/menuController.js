@@ -157,7 +157,7 @@ exports.getStoreMenu = asyncHandler(async (req, res, next) => {
 
    const Store = require('../models/store');
    const { isStoreOpen } = require('../utils/storeUtils');
-   const store = await Store.findById(storeId).select('storeName address phone category description openingTime closingTime deliveryTime minOrder deliveryFee isOpen rating totalReviews image ownerId');
+   const store = await Store.findById(storeId).select('storeName address phone category description openingTime closingTime deliveryTime minOrder deliveryFee isOpen rating totalReviews image ownerId status available');
 
    if (!store) {
       return next(new AppError('Store not found', 404));
