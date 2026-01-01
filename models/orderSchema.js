@@ -80,10 +80,15 @@ const OrderSchema = new mongoose.Schema({
 
   status: {
     type: String,
-    enum: ["Pending", "Confirmed", "OutForDelivery", "Delivered", "Cancelled","Rejected"],
+    enum: [
+      "Pending", "Confirmed", "OutForDelivery", "Delivered", "Cancelled", "Rejected",
+      "pending", "confirmed", "out_for_delivery", "delivered", "cancelled",
+      "preparing", "ready", "refund_initiated", "refund_completed",
+      "payment_pending", "payment_received", "payment_failed"
+    ],
     default: "Pending"
   },
-   rejectionReason: {
+  rejectionReason: {
     type: String,
     maxlength: [500, "Rejection reason too long"]
   },
@@ -93,7 +98,7 @@ const OrderSchema = new mongoose.Schema({
     type: String,
     maxlength: [500, "Cancellation reason too long"]
   },
-  
+
   // ✅ Payment tracking
   paymentMethod: {
     type: String,
@@ -105,7 +110,7 @@ const OrderSchema = new mongoose.Schema({
     ref: 'Payment',
     sparse: true
   },
-  
+
   // ✅ Delivery tracking
   deliveryPartner: {
     type: String,
@@ -119,16 +124,16 @@ const OrderSchema = new mongoose.Schema({
     type: String,
     sparse: true
   },
-  
+
   // ✅ Metadata for fraud detection, analytics, etc.
   metadata: {
     type: mongoose.Schema.Types.Mixed
   }
 },
-{ timestamps: true });
+  { timestamps: true });
 
 // Pre-save hook to calculate finalPrice if not set
-OrderSchema.pre('save', function(next) {
+OrderSchema.pre('save', function (next) {
   // If finalPrice is not set, calculate it from items, discount, and delivery charge
   if (this.isModified('items') || this.isModified('discount') || this.isModified('deliveryCharge') || this.isNew) {
     let subtotal = 0;

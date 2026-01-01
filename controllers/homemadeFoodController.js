@@ -208,7 +208,7 @@ exports.trackOrder = asyncHandler(async (req, res) => {
  */
 exports.getAllHomemadeFoods = asyncHandler(async (req, res) => {
   const { isActive, isTodaysSpecial } = req.query;
-  
+
   const filter = {};
   if (isActive !== undefined) filter.isActive = isActive === 'true';
   if (isTodaysSpecial !== undefined) filter.isTodaysSpecial = isTodaysSpecial === 'true';
@@ -354,46 +354,122 @@ exports.setTodaysSpecial = asyncHandler(async (req, res) => {
  */
 exports.getAllOrders = asyncHandler(async (req, res) => {
   const { status, page = 1, limit = 20, startDate, endDate, search } = req.query;
-  
-  const filter = {};
-  
+  const Order = require('../models/orderSchema');
+
+  // 1. Build Filters
+  const homemadeFilter = {};
+  const orderFilter = { 'metadata.isHomemade': true };
+
+  // Status Filter
   if (status && status !== 'all') {
-    filter.status = status;
+    // Admin uses lowercase statuses usually. Clean this up.
+    homemadeFilter.status = status; // HomemadeFoodOrder uses mixed/variable
+
+    // Order uses specific Enum. Map if needed.
+    // Simple approach: regex or $in if strict match fails, but let's try direct map first
+    const statusMap = {
+      'pending': 'Pending', 'confirmed': 'Confirmed', 'delivered': 'Delivered',
+      'cancelled': 'Cancelled', 'out_for_delivery': 'OutForDelivery',
+      'preparing': 'preparing', 'ready': 'ready'
+    };
+    orderFilter.status = statusMap[status] || status;
   }
-  
+
+  // Date Filter
   if (startDate || endDate) {
-    filter.createdAt = {};
-    if (startDate) filter.createdAt.$gte = new Date(startDate);
-    if (endDate) filter.createdAt.$lte = new Date(endDate);
+    homemadeFilter.createdAt = {};
+    orderFilter.createdAt = {};
+    if (startDate) {
+      homemadeFilter.createdAt.$gte = new Date(startDate);
+      orderFilter.createdAt.$gte = new Date(startDate);
+    }
+    if (endDate) {
+      homemadeFilter.createdAt.$lte = new Date(endDate);
+      orderFilter.createdAt.$lte = new Date(endDate);
+    }
   }
-  
+
+  // Search Filter
   if (search) {
-    filter.$or = [
-      { customerName: { $regex: search, $options: 'i' } },
-      { mobileNumber: { $regex: search, $options: 'i' } },
-      { orderNumber: { $regex: search, $options: 'i' } }
+    const searchRegex = { $regex: search, $options: 'i' };
+
+    homemadeFilter.$or = [
+      { customerName: searchRegex },
+      { mobileNumber: searchRegex },
+      { orderNumber: searchRegex }
+    ];
+
+    orderFilter.$or = [
+      { 'metadata.customerName': searchRegex },
+      { 'metadata.customerPhone': searchRegex },
+      // Check if search looks like an Order ID?
     ];
   }
 
-  const skip = (parseInt(page) - 1) * parseInt(limit);
-
-  const [orders, total] = await Promise.all([
-    HomemadeFoodOrder.find(filter)
-      .populate('foodItem', 'name image price')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit)),
-    HomemadeFoodOrder.countDocuments(filter)
+  // 2. Fetch from both
+  const [legacyOrders, newOrders] = await Promise.all([
+    HomemadeFoodOrder.find(homemadeFilter).sort({ createdAt: -1 }).lean(),
+    Order.find(orderFilter).sort({ createdAt: -1 }).lean()
   ]);
+
+  // 3. Map to Unified Format
+  const mappedLegacy = legacyOrders.map(o => ({
+    _id: o._id,
+    source: 'legacy',
+    orderNumber: o.orderNumber || o._id.toString().slice(-6).toUpperCase(),
+    customerName: o.customerName,
+    mobileNumber: o.mobileNumber,
+    foodName: o.foodName || 'Homemade Item',
+    quantity: o.quantity,
+    finalAmount: o.finalAmount,
+    status: o.status.toLowerCase(),
+    createdAt: o.createdAt,
+    deliveryAddress: o.deliveryAddress,
+    adminNotes: o.adminNotes || '',
+    specialInstructions: o.specialInstructions
+  }));
+
+  const mappedNew = newOrders.map(o => {
+    // Derive simple food name
+    let simpleFoodName = 'Homemade Thali';
+    if (o.metadata?.mealType) simpleFoodName = `${o.metadata.mealType} Thali`;
+    else if (o.items?.[0]?.itemName) simpleFoodName = o.items[0].itemName;
+
+    return {
+      _id: o._id,
+      source: 'new',
+      orderNumber: o.orderNumber || o._id.toString().slice(-6).toUpperCase(),
+      customerName: o.metadata?.customerName || 'Unknown',
+      mobileNumber: o.metadata?.customerPhone || 'Unknown',
+      foodName: simpleFoodName,
+      quantity: o.items?.[0]?.quantity || 1,
+      finalAmount: o.finalPrice,
+      deliveryCharge: o.deliveryCharge || 0,
+      status: o.status.toLowerCase(),
+      createdAt: o.createdAt,
+      deliveryAddress: o.deliveryAddress, // Schema differs slightly but usually compatible
+      adminNotes: o.metadata?.adminNotes || '',
+      specialInstructions: o.metadata?.mealType
+    };
+  });
+
+  // 4. Merge and Sort
+  const allOrders = [...mappedLegacy, ...mappedNew].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  // 5. Pagination (In-Memory)
+  const total = allOrders.length;
+  const p = parseInt(page);
+  const l = parseInt(limit);
+  const paginatedOrders = allOrders.slice((p - 1) * l, p * l);
 
   res.status(200).json({
     success: true,
-    data: orders,
+    data: paginatedOrders,
     pagination: {
-      page: parseInt(page),
-      limit: parseInt(limit),
+      page: p,
+      limit: l,
       total,
-      pages: Math.ceil(total / parseInt(limit))
+      pages: Math.ceil(total / l)
     }
   });
 });
@@ -402,78 +478,118 @@ exports.getAllOrders = asyncHandler(async (req, res) => {
  * Get single order details (admin)
  * @route GET /api/admin/homemade-food/orders/:id
  */
+// Unified getOrderById
 exports.getOrderById = asyncHandler(async (req, res) => {
   const { id } = req.params;
+  const Order = require('../models/orderSchema');
 
-  const order = await HomemadeFoodOrder.findById(id)
-    .populate('foodItem', 'name image price description features')
-    .populate('userId', 'name email phone');
+  // Try New Order first
+  let order = await Order.findById(id).lean();
+  let source = 'new';
+
+  if (!order) {
+    // Try Legacy Order
+    order = await HomemadeFoodOrder.findById(id).populate('userId', 'name email phone').lean();
+    source = 'legacy';
+  }
 
   if (!order) {
     throw new AppError("Order not found", 404);
   }
 
+  let formattedOrder;
+  if (source === 'new') {
+    let simpleFoodName = 'Homemade Thali';
+    if (order.metadata?.mealType) simpleFoodName = `${order.metadata.mealType} Thali`;
+    else if (order.items?.[0]?.itemName) simpleFoodName = order.items[0].itemName;
+
+    formattedOrder = {
+      _id: order._id,
+      orderNumber: order.orderNumber || order._id.toString().slice(-6).toUpperCase(),
+      customerName: order.metadata?.customerName || 'Unknown',
+      mobileNumber: order.metadata?.customerPhone || 'Unknown',
+      email: order.metadata?.email || '',
+      foodName: simpleFoodName,
+      quantity: order.items?.[0]?.quantity || 1,
+      finalAmount: order.finalPrice,
+      deliveryCharge: order.deliveryCharge || 0,
+      status: order.status.toLowerCase(),
+      createdAt: order.createdAt,
+      deliveryAddress: order.deliveryAddress,
+      specialInstructions: order.metadata?.mealType,
+      adminNotes: order.metadata?.adminNotes || order.rejectionReason || ''
+    };
+  } else {
+    formattedOrder = {
+      _id: order._id,
+      orderNumber: order.orderNumber,
+      customerName: order.customerName,
+      mobileNumber: order.mobileNumber,
+      email: order.email,
+      foodName: order.foodName || order.foodItem?.name,
+      quantity: order.quantity,
+      finalAmount: order.finalAmount,
+      deliveryCharge: order.deliveryCharge,
+      status: order.status.toLowerCase(),
+      createdAt: order.createdAt,
+      deliveryAddress: order.deliveryAddress,
+      specialInstructions: order.specialInstructions,
+      adminNotes: order.adminNotes
+    };
+  }
+
   res.status(200).json({
     success: true,
-    data: order
+    data: formattedOrder
   });
 });
 
-/**
- * Update order status (admin)
- * @route PATCH /api/admin/homemade-food/orders/:id/status
- */
+// Unified updateOrderStatus
 exports.updateOrderStatus = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { status, adminNotes, cancellationReason, refundDetails, estimatedDeliveryTime } = req.body;
+  const { status, adminNotes } = req.body;
+  const Order = require('../models/orderSchema');
 
-  const validStatuses = [
-    'pending', 'confirmed', 'preparing', 'ready', 'out_for_delivery',
-    'delivered', 'cancelled', 'refund_initiated', 'refund_completed',
-    'payment_pending', 'payment_received', 'payment_failed'
-  ];
+  // Try finding in New Orders
+  let order = await Order.findById(id);
+  let source = 'new';
 
-  if (!validStatuses.includes(status)) {
-    throw new AppError("Invalid status", 400);
+  if (!order) {
+    // Try Legacy
+    order = await HomemadeFoodOrder.findById(id);
+    source = 'legacy';
   }
 
-  const order = await HomemadeFoodOrder.findById(id);
   if (!order) {
     throw new AppError("Order not found", 404);
   }
 
-  // Update fields
+  // Update Logic
   order.status = status;
-  if (adminNotes) order.adminNotes = adminNotes;
-  if (cancellationReason && status === 'cancelled') order.cancellationReason = cancellationReason;
-  if (refundDetails && ['refund_initiated', 'refund_completed'].includes(status)) {
-    order.refundDetails = refundDetails;
+
+  if (source === 'new') {
+    if (adminNotes) {
+      if (!order.metadata) order.metadata = {};
+      order.metadata.adminNotes = adminNotes;
+      order.markModified('metadata');
+    }
+  } else {
+    if (adminNotes) order.adminNotes = adminNotes;
   }
-  if (estimatedDeliveryTime) order.estimatedDeliveryTime = new Date(estimatedDeliveryTime);
-  if (status === 'delivered') order.actualDeliveryTime = new Date();
-  if (status === 'payment_received') order.paymentStatus = 'received';
-  if (status === 'refund_completed') order.paymentStatus = 'refunded';
 
   await order.save();
 
-  // Send email notification to customer about status update
-  if (order.email) {
-    try {
-      await sendHomemadeFoodOrderStatusUpdate(order.email, {
-        orderNumber: order.orderNumber,
-        customerName: order.customerName,
-        foodName: order.foodName,
-        status: order.status,
-        finalAmount: order.finalAmount
-      });
-    } catch (emailError) {
-      console.error("Failed to send status update email:", emailError);
-    }
-  }
+  // Return formatted
+  const formattedOrder = {
+    _id: order._id,
+    orderNumber: order.orderNumber || order._id.toString().slice(-6).toUpperCase(),
+    status: order.status.toLowerCase(),
+    adminNotes: source === 'new' ? order.metadata?.adminNotes : order.adminNotes
+  };
 
   res.status(200).json({
     success: true,
-    data: order,
+    data: formattedOrder,
     message: "Order status updated successfully"
   });
 });
@@ -498,7 +614,7 @@ exports.updatePaymentStatus = asyncHandler(async (req, res) => {
 
   order.paymentStatus = paymentStatus;
   if (paymentId) order.paymentId = paymentId;
-  
+
   // Update order status based on payment
   if (paymentStatus === 'received' && order.status === 'payment_pending') {
     order.status = 'payment_received';
@@ -524,8 +640,8 @@ exports.getAnalytics = asyncHandler(async (req, res) => {
   if (startDate) dateFilter.$gte = new Date(startDate);
   if (endDate) dateFilter.$lte = new Date(endDate);
 
-  const matchStage = Object.keys(dateFilter).length > 0 
-    ? { createdAt: dateFilter } 
+  const matchStage = Object.keys(dateFilter).length > 0
+    ? { createdAt: dateFilter }
     : {};
 
   // Get order statistics
@@ -652,7 +768,7 @@ exports.exportOrders = asyncHandler(async (req, res) => {
 
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename=homemade-food-orders.csv');
-    
+
     const headers = Object.keys(csv[0] || {}).join(',');
     const rows = csv.map(row => Object.values(row).join(',')).join('\n');
     return res.send(`${headers}\n${rows}`);

@@ -53,19 +53,20 @@ const ensureReferences = async () => {
         });
     }
 
-    let sundayItem = await MenuItem.findOne({ name: "Sunday Special Thali", storeId: store._id });
-    if (!sundayItem) {
-        sundayItem = await MenuItem.create({
-            storeId: store._id,
-            name: "Sunday Special Thali",
-            price: 120, // Default base price
-            category: "Homemade Food",
-            description: "Sunday special treat",
-            foodType: "veg"
-        });
-    }
+    // Sunday Item creation logic removed as per request
+    // let sundayItem = await MenuItem.findOne({ name: "Sunday Special Thali", storeId: store._id });
+    // if (!sundayItem) {
+    //     sundayItem = await MenuItem.create({
+    //         storeId: store._id,
+    //         name: "Sunday Special Thali",
+    //         price: 120, // Default base price
+    //         category: "Homemade Food",
+    //         description: "Sunday special treat",
+    //         foodType: "veg"
+    //     });
+    // }
 
-    return { store, dailyItem, sundayItem };
+    return { store, dailyItem };
 };
 
 // --- CORE BUSINESS LOGIC ---
