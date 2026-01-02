@@ -154,6 +154,7 @@ app.use(async (req, res, next) => {
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/customer", require("./routes/customerRoutes"));
 app.use("/api/store-owner", require("./routes/storeOwnerRoutes"));
+app.use("/api/admin/homemade-food", require("./routes/homemadeFoodRoutes"));
 app.use("/api/admin", require("./routes/adminRoutes"));
 app.use("/api/orders", require("./routes/orderRoutes"));
 app.use("/api/cart", require("./routes/cartRoutes"));
@@ -166,7 +167,7 @@ app.use("/api/promotions", require("./routes/promotionRoutes"));
 app.use("/api/disputes", require("./routes/disputeRoutes"));
 app.use("/api/payouts", require("./routes/payoutRoutes"));
 app.use("/api/notifications", require("./routes/notificationRoutes"));
-app.use("/api/admin/homemade-food", require("./routes/homemadeFoodRoutes"));
+// app.use("/api/admin/homemade-food", require("./routes/homemadeFoodRoutes")); // Moved up
 app.use("/api/homemade", require("./routes/homemadeFoodRoutes")); // Public access alias
 
 // 404 handler for undefined routes - must be before error middleware

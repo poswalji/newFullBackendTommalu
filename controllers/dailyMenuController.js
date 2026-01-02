@@ -450,6 +450,7 @@ exports.getAllOrders = catchAsync(async (req, res, next) => {
     // Order model is already imported at top
 
     // 1. Build Filters
+    console.log(`🔍 [Admin] Fetching Orders. Query Params:`, req.query);
     const homemadeFilter = {};
     const orderFilter = { 'metadata.isHomemade': true };
 
@@ -497,6 +498,7 @@ exports.getAllOrders = catchAsync(async (req, res, next) => {
         HomemadeFoodOrder.find(homemadeFilter).sort({ createdAt: -1 }).lean(),
         Order.find(orderFilter).sort({ createdAt: -1 }).lean()
     ]);
+    console.log(`📊 [Admin] Found ${legacyOrders.length} Legacy Orders, ${newOrders.length} New Orders`);
 
     // 3. Map to Unified Format
     const mappedLegacy = legacyOrders.map(o => ({
