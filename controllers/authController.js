@@ -28,10 +28,10 @@ exports.registerUser = asyncHandler(async (req, res, next) => {
     const verificationCodeExpires = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
 
     // ✅ Create user with additional fields (support addresses array)
-    const userData = { 
-        name, 
-        email, 
-        password, 
+    const userData = {
+        name,
+        email,
+        password,
         role: role || 'customer',
         emailVerified: false,
         verificationCode,
@@ -43,7 +43,7 @@ exports.registerUser = asyncHandler(async (req, res, next) => {
     }
 
     const user = await User.create(userData);
-    
+
     // ✅ Send verification email
     try {
         await sendVerificationEmail(user.email, verificationCode);
@@ -84,7 +84,7 @@ exports.loginUser = asyncHandler(async (req, res, next) => {
 
     // Check if user exists && password is correct
     const user = await User.findOne({ email }).select('+password');
-    
+
     if (!user || !(await user.correctPassword(password))) {
         return next(new AppError('Incorrect email or password', 401));
     }
@@ -94,7 +94,7 @@ exports.loginUser = asyncHandler(async (req, res, next) => {
         // Generate new verification code if expired
         const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
         const verificationCodeExpires = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
-        
+
         user.verificationCode = verificationCode;
         user.verificationCodeExpires = verificationCodeExpires;
         await user.save({ validateBeforeSave: false });
@@ -127,14 +127,21 @@ exports.loginUser = asyncHandler(async (req, res, next) => {
         { expiresIn: process.env.REFRESH_JWT_EXPIRES_IN || '30d' }
     );
 
-    // Set httpOnly refresh cookie
-    res.cookie('refreshToken', refreshToken, {
+    // Cookie Options
+    const cookieOptions = {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
-        maxAge: 30 * 24 * 60 * 60 * 1000,
         path: '/'
-    });
+    };
+
+    // If rememberMe is true, set maxAge to 30 days. Otherwise, leave undefined (Session Cookie)
+    if (req.body.rememberMe) {
+        cookieOptions.maxAge = 30 * 24 * 60 * 60 * 1000;
+    }
+
+    // Set httpOnly refresh cookie
+    res.cookie('refreshToken', refreshToken, cookieOptions);
 
     res.status(200).json({
         success: true,
@@ -175,20 +182,55 @@ exports.googleAuth = asyncHandler(async (req, res, next) => {
 
     try {
         console.log('🔄 Processing Google authentication...');
-        
-        // ✅ Decode the Google token to get unique user info
+
+        let email, name, picture, googleId;
         const { jwtDecode } = require('jwt-decode');
-        const decoded = jwtDecode(googleToken);
-        
-        const { email, name, picture, sub: googleId } = decoded;
-        
+
+        // Try decoding as ID Token (JWT)
+        try {
+            const decoded = jwtDecode(googleToken);
+            if (decoded && decoded.email) {
+                email = decoded.email;
+                name = decoded.name;
+                picture = decoded.picture;
+                googleId = decoded.sub;
+            }
+        } catch (e) {
+            // Ignore decode error, likely an access token
+        }
+
+        // If decoding failed to get email, try fetching as Access Token
+        if (!email) {
+            console.log('⚠️ Token is not a JWT, trying as Access Token...');
+            const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+                headers: { Authorization: `Bearer ${googleToken}` }
+            });
+
+            if (!response.ok) {
+                console.error('❌ Google UserInfo Fetch Failed:', response.status, response.statusText);
+                const errorText = await response.text();
+                console.error('❌ Google Error Body:', errorText);
+                throw new Error('Failed to verify access token with Google');
+            }
+
+            const userData = await response.json();
+            email = userData.email;
+            name = userData.name;
+            picture = userData.picture;
+            googleId = userData.sub;
+        }
+
+        if (!email) {
+            throw new Error('Could not retrieve email from Google token');
+        }
+
         console.log('👤 Google user info:', { email, name, googleId });
 
         // ✅ Generate unique password for each Google user
         const uniquePassword = 'google_' + googleId + '_' + Date.now();
-        
+
         // Check if user already exists
-        let user = await User.findOne({ 
+        let user = await User.findOne({
             $or: [
                 { email: email },
                 { googleId: googleId }
@@ -349,7 +391,7 @@ exports.verifyEmail = asyncHandler(async (req, res, next) => {
 
     // Find user and verification code
     const user = await User.findById(decoded.id).select('+verificationCode +verificationCodeExpires');
-    
+
     if (!user) {
         return next(new AppError('User not found', 404));
     }
@@ -369,7 +411,7 @@ exports.verifyEmail = asyncHandler(async (req, res, next) => {
         // Generate new code
         const newCode = Math.floor(100000 + Math.random() * 900000).toString();
         const newExpires = new Date(Date.now() + 30 * 60 * 1000);
-        
+
         user.verificationCode = newCode;
         user.verificationCodeExpires = newExpires;
         await user.save({ validateBeforeSave: false });
@@ -481,7 +523,7 @@ exports.resendVerificationCode = asyncHandler(async (req, res, next) => {
 
     // Find user
     const user = await User.findById(decoded.id);
-    
+
     if (!user) {
         return next(new AppError('User not found', 404));
     }
@@ -516,6 +558,8 @@ exports.resendVerificationCode = asyncHandler(async (req, res, next) => {
 exports.forgotPassword = asyncHandler(async (req, res, next) => {
     const { email } = req.body;
 
+    console.log(`🔍 Forgot password requested for: ${email}`);
+
     if (!email) {
         return next(new AppError('Please provide your email address', 400));
     }
@@ -523,8 +567,11 @@ exports.forgotPassword = asyncHandler(async (req, res, next) => {
     // Find user by email
     const user = await User.findOne({ email });
 
+    console.log(`👤 User found in DB: ${user ? 'YES' : 'NO'}`);
+
     // Don't reveal if user exists or not for security
     if (!user) {
+        console.log('⚠️ User not found. Sending fake success.');
         // Still return success to prevent email enumeration
         return res.status(200).json({
             success: true,
@@ -533,7 +580,9 @@ exports.forgotPassword = asyncHandler(async (req, res, next) => {
     }
 
     // Check if user has a password (Google users might not have one)
+    console.log(`🔑 User has password field: ${user.password ? 'YES' : 'NO'}`);
     if (!user.password) {
+        console.log('⚠️ User has no password (likely generic/Google). Sending fake success.');
         return res.status(200).json({
             success: true,
             message: 'If an account with that email exists, a password reset link has been sent.'
@@ -549,16 +598,19 @@ exports.forgotPassword = asyncHandler(async (req, res, next) => {
     user.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
     await user.save({ validateBeforeSave: false });
 
+    console.log('📧 Sending reset email...');
     // Send password reset email
     try {
         const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
         await sendPasswordResetEmail(user.email, resetToken, resetUrl);
+        console.log('✅ Reset email sent successfully.');
     } catch (emailError) {
+        console.error('❌ Failed to send reset email:', emailError);
         // Reset the token fields if email fails
         user.resetPasswordToken = undefined;
         user.resetPasswordExpires = undefined;
         await user.save({ validateBeforeSave: false });
-        
+
         return next(new AppError('Failed to send password reset email. Please try again later.', 500));
     }
 

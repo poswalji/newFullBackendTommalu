@@ -271,7 +271,8 @@ exports.createOrder = asyncHandler(async (req, res, next) => {
         paymentMethod, // ✅ Only cash on delivery
         metadata: {
             fraudFlags: fraudFlags.length > 0 ? fraudFlags : undefined,
-            fraudChecked: true
+            fraudChecked: true,
+            isHomemade: store.category === 'Homemade Food'
         }
     });
 
@@ -1036,7 +1037,7 @@ exports.cancelOrder = asyncHandler(async (req, res, next) => {
 // ✅ Get all orders (admin with optional filters)
 exports.getAllOrders = asyncHandler(async (req, res, next) => {
     const { status } = req.query;
-    const filter = {};
+    const filter = { 'metadata.isHomemade': { $ne: true } }; // Exclude Homemade Orders
     if (status) filter.status = status;
     const orders = await Order.find(filter)
         .populate('userId', 'name email')

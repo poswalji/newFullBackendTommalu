@@ -3,7 +3,7 @@ const router = express.Router();
 const menuItemController = require('../controllers/menuController');
 const storeOwnerController = require('../controllers/storeOwnerController');
 const orderController = require('../controllers/orderController');
-const homemadeFoodController = require('../controllers/homemadeFoodController');
+const dailyMenuController = require('../controllers/dailyMenuController');
 
 // ✅ PUBLIC ROUTES - No authentication needed
 
@@ -97,109 +97,9 @@ router.get('/categories', menuItemController.getAllCategories);
  *       200:
  *         description: Today's special food item
  */
-router.get('/homemade-food/todays-special', homemadeFoodController.getTodaysSpecial);
-
-/**
- * @openapi
- * /api/public/homemade-food:
- *   get:
- *     tags: [Public, Homemade Food]
- *     summary: Get all active homemade food items
- *     responses:
- *       200:
- *         description: List of active homemade food items
- */
-router.get('/homemade-food', homemadeFoodController.getActiveHomemadeFoods);
-
-/**
- * @openapi
- * /api/public/homemade-food/order:
- *   post:
- *     tags: [Public, Homemade Food]
- *     summary: Submit a homemade food order (no auth required)
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - customerName
- *               - mobileNumber
- *               - street
- *               - city
- *               - pincode
- *               - foodItemId
- *               - quantity
- *             properties:
- *               customerName:
- *                 type: string
- *               mobileNumber:
- *                 type: string
- *               email:
- *                 type: string
- *               street:
- *                 type: string
- *               landmark:
- *                 type: string
- *               city:
- *                 type: string
- *               state:
- *                 type: string
- *               pincode:
- *                 type: string
- *               foodItemId:
- *                 type: string
- *               quantity:
- *                 type: number
- *               specialInstructions:
- *                 type: string
- *               preferredDeliverySlot:
- *                 type: string
- *                 enum: [morning, afternoon, evening, any]
- *               paymentMethod:
- *                 type: string
- *                 enum: [cash_on_delivery, online, upi]
- *     responses:
- *       201:
- *         description: Order placed successfully
- */
-router.post('/homemade-food/order', homemadeFoodController.submitOrder);
-
-/**
- * @openapi
- * /api/public/homemade-food/order/track:
- *   get:
- *     tags: [Public, Homemade Food]
- *     summary: Track homemade food order
- *     parameters:
- *       - in: query
- *         name: orderNumber
- *         required: true
- *         schema:
- *           type: string
- *       - in: query
- *         name: mobileNumber
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Order tracking details
- */
-// ✅ Public Stats
-/**
- * @openapi
- * /api/public/stats:
- *   get:
- *     tags: [Public]
- *     summary: Get public statistics
- *     responses:
- *       200:
- *         description: Stats returned successfully
- */
-router.get('/stats', storeOwnerController.getPublicStats);
-
-router.get('/homemade-food/order/track', homemadeFoodController.trackOrder);
+router.get('/homemade-food/todays-special', dailyMenuController.getTodayMenu);
+router.get('/homemade-food', dailyMenuController.getAllHomemadeFoods);
+router.post('/homemade-food/order', dailyMenuController.placeOrder);
+router.get('/homemade-food/order/track', dailyMenuController.trackOrder);
 
 module.exports = router;

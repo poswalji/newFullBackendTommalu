@@ -259,7 +259,7 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
         deliveryAddress: {
             street: `${customAddress}, ${area}`,
             city: 'Jaipur',
-            pincode: '302001',
+            pincode: '303002',
             label: 'Home'
         },
         items: [{
@@ -301,7 +301,7 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
                 street: customAddress,
                 landmark: area, // Using area as landmark context
                 city: 'Jaipur',
-                pincode: '302001'
+                pincode: '303002'
             },
             specialInstructions: slot === 'Lunch' ? 'Lunch Slot' : 'Dinner Slot'
         });
@@ -316,7 +316,7 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
             orderId: order._id,
             mealType: slot,
             plates: quantity,
-            deliveryTime: slot === 'Lunch' ? '1:00–2:00 PM' : '7:00–8:00 PM',
+            deliveryTime: slot === 'Lunch' ? '1:00–2:00 PM' : '7:30–9:00 PM',
             paymentMode: 'COD (Cash on Delivery)',
             totalAmount: finalPrice
         }
@@ -444,58 +444,308 @@ exports.deleteHomemadeFood = catchAsync(async (req, res, next) => {
     });
 });
 
-// Orders Management (Generic List)
+// 5. Orders Management (Merged & Enhanced)
 exports.getAllOrders = catchAsync(async (req, res, next) => {
-    const features = new APIFeatures(HomemadeFoodOrder.find(), req.query)
-        .filter()
-        .sort()
-        .limitFields()
-        .paginate();
+    const { status, page = 1, limit = 20, startDate, endDate, search } = req.query;
+    // Order model is already imported at top
 
-    const orders = await features.query;
-    const total = await HomemadeFoodOrder.countDocuments(features.queryString || {});
+    // 1. Build Filters
+    const homemadeFilter = {};
+    const orderFilter = { 'metadata.isHomemade': true };
+
+    // Status Filter
+    if (status && status !== 'all') {
+        homemadeFilter.status = status;
+        const statusMap = {
+            'pending': 'Pending', 'confirmed': 'Confirmed', 'delivered': 'Delivered',
+            'cancelled': 'Cancelled', 'out_for_delivery': 'OutForDelivery',
+            'preparing': 'preparing', 'ready': 'ready'
+        };
+        orderFilter.status = statusMap[status] || status;
+    }
+
+    // Date Filter
+    if (startDate || endDate) {
+        homemadeFilter.createdAt = {};
+        orderFilter.createdAt = {};
+        if (startDate) {
+            homemadeFilter.createdAt.$gte = new Date(startDate);
+            orderFilter.createdAt.$gte = new Date(startDate);
+        }
+        if (endDate) {
+            homemadeFilter.createdAt.$lte = new Date(endDate);
+            orderFilter.createdAt.$lte = new Date(endDate);
+        }
+    }
+
+    // Search Filter
+    if (search) {
+        const searchRegex = { $regex: search, $options: 'i' };
+        homemadeFilter.$or = [
+            { customerName: searchRegex },
+            { mobileNumber: searchRegex },
+            { orderNumber: searchRegex }
+        ];
+        orderFilter.$or = [
+            { 'metadata.customerName': searchRegex },
+            { 'metadata.customerPhone': searchRegex }
+        ];
+    }
+
+    // 2. Fetch from both
+    const [legacyOrders, newOrders] = await Promise.all([
+        HomemadeFoodOrder.find(homemadeFilter).sort({ createdAt: -1 }).lean(),
+        Order.find(orderFilter).sort({ createdAt: -1 }).lean()
+    ]);
+
+    // 3. Map to Unified Format
+    const mappedLegacy = legacyOrders.map(o => ({
+        _id: o._id,
+        source: 'legacy',
+        orderNumber: o.orderNumber || o._id.toString().slice(-6).toUpperCase(),
+        customerName: o.customerName,
+        mobileNumber: o.mobileNumber,
+        foodName: o.foodName || 'Homemade Item',
+        quantity: o.quantity,
+        finalAmount: o.finalAmount,
+        status: o.status.toLowerCase(),
+        createdAt: o.createdAt,
+        deliveryAddress: o.deliveryAddress,
+        adminNotes: o.adminNotes || '',
+        specialInstructions: o.specialInstructions
+    }));
+
+    const mappedNew = newOrders.map(o => {
+        let simpleFoodName = 'Homemade Thali';
+        if (o.metadata?.mealType) simpleFoodName = `${o.metadata.mealType} Thali`;
+        else if (o.items?.[0]?.itemName) simpleFoodName = o.items[0].itemName;
+
+        return {
+            _id: o._id,
+            source: 'new',
+            orderNumber: o.orderNumber || o._id.toString().slice(-6).toUpperCase(),
+            customerName: o.metadata?.customerName || 'Unknown',
+            mobileNumber: o.metadata?.customerPhone || 'Unknown',
+            foodName: simpleFoodName,
+            quantity: o.items?.[0]?.quantity || 1,
+            finalAmount: o.finalPrice,
+            deliveryCharge: o.deliveryCharge || 0,
+            status: o.status.toLowerCase(),
+            createdAt: o.createdAt,
+            deliveryAddress: o.deliveryAddress,
+            adminNotes: o.metadata?.adminNotes || '',
+            specialInstructions: o.metadata?.mealType
+        };
+    });
+
+    // 4. Merge and Sort
+    const allOrders = [...mappedLegacy, ...mappedNew].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    // 5. Pagination (In-Memory)
+    const total = allOrders.length;
+    const p = parseInt(page);
+    const l = parseInt(limit);
+    const paginatedOrders = allOrders.slice((p - 1) * l, p * l);
 
     res.status(200).json({
         success: true,
         pagination: {
+            page: p,
+            limit: l,
             total,
-            page: req.query.page * 1 || 1,
-            limit: req.query.limit * 1 || 10,
-            pages: Math.ceil(total / (req.query.limit * 1 || 10))
+            pages: Math.ceil(total / l)
         },
-        data: orders
+        data: paginatedOrders
     });
 });
 
 exports.getOrderById = catchAsync(async (req, res, next) => {
-    const order = await HomemadeFoodOrder.findById(req.params.id);
+    const { id } = req.params;
+
+    // Try New Order first
+    let order = await Order.findById(id).lean();
+    let source = 'new';
+
+    if (!order) {
+        // Try Legacy Order
+        order = await HomemadeFoodOrder.findById(id).populate('userId', 'name email phone').lean();
+        source = 'legacy';
+    }
 
     if (!order) {
         return next(new AppError('No order found with that ID', 404));
     }
 
+    let formattedOrder;
+    if (source === 'new') {
+        let simpleFoodName = 'Homemade Thali';
+        if (order.metadata?.mealType) simpleFoodName = `${order.metadata.mealType} Thali`;
+        else if (order.items?.[0]?.itemName) simpleFoodName = order.items[0].itemName;
+
+        formattedOrder = {
+            _id: order._id,
+            orderNumber: order.orderNumber || order._id.toString().slice(-6).toUpperCase(),
+            customerName: order.metadata?.customerName || 'Unknown',
+            mobileNumber: order.metadata?.customerPhone || 'Unknown',
+            email: order.metadata?.email || '',
+            foodName: simpleFoodName,
+            quantity: order.items?.[0]?.quantity || 1,
+            finalAmount: order.finalPrice,
+            deliveryCharge: order.deliveryCharge || 0,
+            status: order.status.toLowerCase(),
+            createdAt: order.createdAt,
+            deliveryAddress: order.deliveryAddress,
+            specialInstructions: order.metadata?.mealType,
+            adminNotes: order.metadata?.adminNotes || order.rejectionReason || ''
+        };
+    } else {
+        formattedOrder = {
+            _id: order._id,
+            orderNumber: order.orderNumber,
+            customerName: order.customerName,
+            mobileNumber: order.mobileNumber,
+            email: order.email,
+            foodName: order.foodName || order.foodItem?.name,
+            quantity: order.quantity,
+            finalAmount: order.finalAmount,
+            deliveryCharge: order.deliveryCharge,
+            status: order.status.toLowerCase(),
+            createdAt: order.createdAt,
+            deliveryAddress: order.deliveryAddress,
+            specialInstructions: order.specialInstructions,
+            adminNotes: order.adminNotes
+        };
+    }
+
     res.status(200).json({
         success: true,
-        data: order
+        data: formattedOrder
     });
 });
 
 exports.updateOrderStatus = catchAsync(async (req, res, next) => {
+    const { id } = req.params;
     const { status, adminNotes } = req.body;
 
-    const order = await HomemadeFoodOrder.findByIdAndUpdate(
-        req.params.id,
-        { status, adminNotes },
-        { new: true, runValidators: true }
-    );
+    // Try finding in New Orders
+    let order = await Order.findById(id);
+    let source = 'new';
+
+    if (!order) {
+        // Try Legacy
+        order = await HomemadeFoodOrder.findById(id);
+        source = 'legacy';
+    }
 
     if (!order) {
         return next(new AppError('No order found with that ID', 404));
     }
 
+    // Update Logic
+    order.status = status;
+
+    if (source === 'new') {
+        if (adminNotes) {
+            if (!order.metadata) order.metadata = {};
+            order.metadata.adminNotes = adminNotes;
+            order.markModified('metadata');
+        }
+    } else {
+        if (adminNotes) order.adminNotes = adminNotes;
+    }
+
+    await order.save();
+
+    // Return formatted
+    const formattedOrder = {
+        _id: order._id,
+        orderNumber: order.orderNumber || order._id.toString().slice(-6).toUpperCase(),
+        status: order.status.toLowerCase(),
+        adminNotes: source === 'new' ? order.metadata?.adminNotes : order.adminNotes
+    };
+
     res.status(200).json({
         success: true,
-        data: order
+        data: formattedOrder,
+        message: "Order status updated successfully"
+    });
+});
+
+exports.trackOrder = catchAsync(async (req, res, next) => {
+    const { orderNumber, mobileNumber } = req.query;
+
+    if (!orderNumber || !mobileNumber) {
+        return next(new AppError('Order number and mobile number are required', 400));
+    }
+
+    // Try New Order
+    // Note: orderNumber in DB (new) might be storing just ID slice or full UUID.
+    // The previous logic generated slice(-6).toUpperCase().
+    // We should probably search by _id if orderNumber is length 24, otherwise ???
+    // Legacy logic usually stored explicit orderNumber.
+    // New logic in `placeOrder`: `orderNumber` field is NOT explicitly saved in `Order` schema usually?
+    // Let's check `placeOrder` (line 255): It does NOT save `orderNumber` in `Order.create`.
+    // It relies on `_id` in response: `orderNumber: order._id.toString().slice(-6).toUpperCase()`.
+    // So tracking by "Order Number" (short) is hard unless we store it.
+    // BUT `getAllOrders` maps `orderNumber` using `_id`.
+    // So here we should probably accept `orderNumber` as the short code and match it against `_id`?
+    // Or users provide full ID?
+    // Let's assume user provides full ID or we try to match last 6 chars of _id.
+    // Matching last 6 chars in Mongo is hard without regex.
+    // Let's try finding by ID if valid ObjectId.
+
+    let order;
+    let source = '';
+
+    // If orderNumber is valid ObjectId
+    if (mongoose.isValidObjectId(orderNumber)) {
+        order = await Order.findById(orderNumber);
+        if (order) source = 'new';
+        else {
+            order = await HomemadeFoodOrder.findById(orderNumber);
+            if (order) source = 'legacy';
+        }
+    }
+
+    // If not found by ID, try legacy orderNumber field
+    if (!order) {
+        order = await HomemadeFoodOrder.findOne({ orderNumber: orderNumber });
+        if (order) source = 'legacy';
+    }
+
+    // If still not found and orderNumber is short, maybe try regex on _id? (Expensive but okay for tracking)
+    // Actually, let's skip fuzzy matching for now to be safe. "Order Number" in UI usually refers to ID or custom field.
+
+    if (!order) {
+        return next(new AppError('Order not found', 404));
+    }
+
+    // Verify Mobile Number
+    let phoneMatch = false;
+    if (source === 'new') {
+        const storedPhone = order.metadata?.customerPhone || '';
+        if (storedPhone === mobileNumber) phoneMatch = true;
+    } else {
+        if (order.mobileNumber === mobileNumber) phoneMatch = true;
+    }
+
+    if (!phoneMatch) {
+        return next(new AppError('Mobile number does not match order records', 401));
+    }
+
+    const response = {
+        orderNumber: orderNumber,
+        status: order.status,
+        amount: source === 'new' ? order.finalPrice : order.finalAmount,
+        items: source === 'new'
+            ? order.items.map(i => `${i.quantity}x ${i.itemName}`).join(', ')
+            : `${order.quantity}x ${order.foodName}`,
+        createdAt: order.createdAt
+    };
+
+    res.status(200).json({
+        success: true,
+        data: response
     });
 });
 
