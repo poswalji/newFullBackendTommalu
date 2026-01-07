@@ -23,6 +23,7 @@ const userSchema = new mongoose.Schema({
     validate: {
       validator: function(v) {
         // Basic phone validation - adjust regex as needed
+        if(!v){return True:}
         return /^\+?[\d\s\-\(\)]{10,}$/.test(v);
       },
       message: "Please enter a valid phone number"
