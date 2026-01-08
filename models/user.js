@@ -16,19 +16,21 @@ const userSchema = new mongoose.Schema({
     unique: true,
     lowercase: true,
     validate: [validator.isEmail, "Please enter a valid email"]
+  },phone: {
+  type: String,
+  unique: false,
+  validate: {
+    validator: function (v) {
+      // Allow empty / undefined phone numbers
+      if (!v) return true;
+
+      // Basic phone validation
+      return /^\+?[\d\s\-()]{10,}$/.test(v);
+    },
+    message: "Please enter a valid phone number"
+  }
   },
-  phone: {
-    type: String,
-    unique:false,
-    validate: {
-      validator: function(v) {
-        // Basic phone validation - adjust regex as needed
-        if(!v){return True:}
-        return /^\+?[\d\s\-\(\)]{10,}$/.test(v);
-      },
-      message: "Please enter a valid phone number"
-    }
-  },
+
 
  password: {
     type: String,
