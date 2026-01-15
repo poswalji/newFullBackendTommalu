@@ -19,7 +19,13 @@ const dailyMenuSchema = new mongoose.Schema({
         fixedItems: {
             type: [String],
             default: ['Chulhe ki Roti', 'Salad', 'Lahsun Chutney', 'Desi Chhach']
-        }
+        },
+        availableRotis: [{
+            type: { type: String, required: true }, // e.g., 'Wheat', 'Bajra'
+            priceExtra: { type: Number, default: 0 },
+            isDefault: { type: Boolean, default: false }
+        }],
+        extraRotiPrice: { type: Number, default: 10 }
     },
     // Sunday Configuration
     sundayMenu: {

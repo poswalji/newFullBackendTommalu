@@ -20,7 +20,7 @@ exports.initializeFirebase = () => {
         credential: admin.credential.cert(serviceAccount),
         databaseURL: process.env.FIREBASE_DATABASE_URL
       });
-    } 
+    }
     // Option 2: Use environment variables for individual fields
     else if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
       admin.initializeApp({
@@ -61,7 +61,7 @@ exports.getDB = () => {
 exports.emitToUser = (userId, event, data) => {
   try {
     const db = exports.getDB();
-    const userRef = db.ref(`notifications/user:${userId}`);
+    const userRef = db.ref(`notifications/${userId}`);
     const notificationRef = userRef.push();
     notificationRef.set({
       event,
@@ -78,7 +78,7 @@ exports.emitToStoreOwner = (storeOwnerId, event, data) => {
   try {
     const db = exports.getDB();
     const storeOwnerIdString = storeOwnerId?._id?.toString() || storeOwnerId?.toString() || storeOwnerId;
-    const userRef = db.ref(`notifications/user:${storeOwnerIdString}`);
+    const userRef = db.ref(`notifications/${storeOwnerIdString}`);
     const notificationRef = userRef.push();
     notificationRef.set({
       event,
@@ -143,7 +143,7 @@ exports.emitToAll = (event, data) => {
 exports.writeNotification = (userId, notification) => {
   try {
     const db = exports.getDB();
-    const userRef = db.ref(`notifications/user:${userId}`);
+    const userRef = db.ref(`notifications/${userId}`);
     const notificationRef = userRef.push();
     notificationRef.set({
       ...notification,

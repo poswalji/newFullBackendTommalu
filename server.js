@@ -3,6 +3,7 @@
 // dotenv is already loaded in app.js, but we load it here too for safety
 require('dotenv').config();
 const app = require('./app');
+// Force nodemon restart
 const mongoose = require('mongoose');
 const http = require('http');
 const { info, error } = require('./utils/logger');
@@ -27,7 +28,7 @@ const mongoUri = process.env.MONGO_URI;
         host: mongoose.connection.host,
       });
     }
-    
+
     // Initialize Firebase (optional - won't crash if not configured)
     try {
       initializeFirebase();
@@ -39,10 +40,10 @@ const mongoUri = process.env.MONGO_URI;
         message: firebaseErr.message,
       });
     }
-    
+
     // Create HTTP server
     const server = http.createServer(app);
-    
+
     // Start server
     server.listen(PORT, () => {
       info(`🚀 Server running on port ${PORT}`, {

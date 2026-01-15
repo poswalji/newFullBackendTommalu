@@ -1,10 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const dailyMenuController = require('../controllers/dailyMenuController');
+const subscriptionPlanController = require('../controllers/subscriptionPlanController');
 const { protect, restrictTo, isLoggedIn } = require('../middleware/authMiddleware'); // Assuming auth logic exists
 
 // Public Routes
 router.get('/today', dailyMenuController.getTodayMenu);
+router.get('/plans', subscriptionPlanController.getPlans);
+router.post('/plans/purchase', isLoggedIn, subscriptionPlanController.purchaseSubscription);
 router.post('/order', isLoggedIn, dailyMenuController.placeOrder);
 
 // Admin Routes (Protected)
@@ -15,6 +18,12 @@ router.use(restrictTo('admin', 'storeOwner')); // Restrict to admin/owner
 router.patch('/update', dailyMenuController.updateMenu);
 router.patch('/order/:id/confirm', dailyMenuController.confirmOrder);
 router.get('/dashboard', dailyMenuController.getDashboardStats);
+
+// Subscription Plan Mgmt
+router.get('/plans/all', subscriptionPlanController.getAllPlansAdmin);
+router.post('/plans', subscriptionPlanController.createPlan);
+router.patch('/plans/:id', subscriptionPlanController.updatePlan);
+router.delete('/plans/:id', subscriptionPlanController.deletePlan);
 
 // Generic CRUD Routes (Merged)
 // Food Items

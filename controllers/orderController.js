@@ -608,7 +608,8 @@ exports.updateOrderStatus = asyncHandler(async (req, res, next) => {
             items: updatedOrder.items || [],
             discount: updatedOrder.discount,
             promoCode: updatedOrder.promoCode,
-            deliveryCharge: updatedOrder.deliveryCharge,
+            promoCode: updatedOrder.promoCode,
+            // deliveryCharge: updatedOrder.deliveryCharge, // Hidden from store owner
             finalPrice: updatedOrder.finalPrice,
             deliveryAddress: updatedOrder.deliveryAddress,
             status: updatedOrder.status,
@@ -645,7 +646,8 @@ exports.getStoreOrders = asyncHandler(async (req, res, next) => {
             items: order.items,
             discount: order.discount,
             promoCode: order.promoCode,
-            deliveryCharge: order.deliveryCharge,
+            promoCode: order.promoCode,
+            // deliveryCharge: order.deliveryCharge, // Check this field is hidden from store owner
             finalPrice: order.finalPrice,
             deliveryAddress: order.deliveryAddress,
             status: order.status,
@@ -1106,7 +1108,8 @@ exports.getOrderById = asyncHandler(async (req, res, next) => {
             items: order.items,
             discount: order.discount,
             promoCode: order.promoCode,
-            deliveryCharge: order.deliveryCharge,
+            promoCode: order.promoCode,
+            deliveryCharge: (isStoreOwner && !isAdmin && !isOwner) ? undefined : order.deliveryCharge, // Hide from store owner only
             finalPrice: order.finalPrice,
             deliveryAddress: order.deliveryAddress,
             status: order.status,
@@ -1146,6 +1149,9 @@ exports.getOrderPublic = asyncHandler(async (req, res, next) => {
             storeName: order.storeId?.storeName,
             storeId: order.storeId._id,
             items: order.items,
+            deliveryCharge: order.deliveryCharge,
+            discount: order.discount,
+            promoCode: order.promoCode,
             createdAt: order.createdAt,
             updatedAt: order.updatedAt
         }

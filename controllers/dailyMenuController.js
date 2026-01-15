@@ -12,7 +12,10 @@ const getIndianTime = () => {
 
 const getTodayDateString = () => {
     const d = getIndianTime();
-    return d.toISOString().split('T')[0];
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
 };
 
 const getDayName = () => {
@@ -140,13 +143,17 @@ exports.getTodayMenu = catchAsync(async (req, res, next) => {
             responseData.slots.dinner.isOpen = false;
             responseData.slots.dinner.message = "No Dinner Service Today";
         }
+        // Include availableRotis for Sunday if configured (using weekdayMenu storage)
+        responseData.product.availableRotis = menu.weekdayMenu.availableRotis || [];
     } else {
         responseData.product = {
             name: "DAILY HOME-MADE THALI",
             price: menu.weekdayMenu.fixedPrice || 89,
             includes: menu.weekdayMenu.fixedItems || ['Chulhe ki Roti', 'Salad', 'Lahsun Chutney', 'Desi Chhach'],
             lunchSabji: menu.weekdayMenu.lunchSabji,
-            dinnerSabji: menu.weekdayMenu.dinnerSabji
+            dinnerSabji: menu.weekdayMenu.dinnerSabji,
+            availableRotis: menu.weekdayMenu.availableRotis || [],
+            extraRotiPrice: menu.weekdayMenu.extraRotiPrice || 10
         };
     }
 
@@ -158,8 +165,26 @@ exports.getTodayMenu = catchAsync(async (req, res, next) => {
 
 // 2. Admin Update Menu
 exports.updateMenu = catchAsync(async (req, res, next) => {
-    const todayStr = getTodayDateString();
-    let menu = await DailyMenu.findOne({ date: todayStr });
+    // Allow updating future dates
+    const targetDate = req.body.date || getTodayDateString();
+    let menu = await DailyMenu.findOne({ date: targetDate });
+
+    // Auto-create if not exists (for future dates)
+    if (!menu) {
+        // Need to determine day of week for the target date
+        const dateObj = new Date(targetDate);
+        const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const dayName = days[dateObj.getDay()];
+
+        menu = await DailyMenu.create({
+            date: targetDate,
+            dayOfWeek: dayName,
+            weekdayMenu: {
+                lunchSabji: 'Upcoming Lunch',
+                dinnerSabji: 'Upcoming Dinner'
+            }
+        });
+    }
 
     if (!menu) {
         return next(new AppError('Daily menu not initialized', 404));
@@ -172,7 +197,8 @@ exports.updateMenu = catchAsync(async (req, res, next) => {
         weekdayItems,
         sundayItemName,
         sundayPrice,
-        sundayDinnerOpen
+        sundayDinnerOpen,
+        extraRotiPrice
     } = req.body;
 
     if (menu.dayOfWeek !== 'Sunday') {
@@ -181,11 +207,20 @@ exports.updateMenu = catchAsync(async (req, res, next) => {
         if (dinnerSabji) menu.weekdayMenu.dinnerSabji = dinnerSabji;
         if (weekdayPrice) menu.weekdayMenu.fixedPrice = weekdayPrice;
         if (weekdayItems) menu.weekdayMenu.fixedItems = weekdayItems;
+        if (extraRotiPrice) menu.weekdayMenu.extraRotiPrice = extraRotiPrice;
+        if (req.body.availableRotis) {
+            menu.weekdayMenu.availableRotis = req.body.availableRotis;
+        }
     } else {
         // Sunday: Item, Price, Slots
         if (sundayItemName) menu.sundayMenu.specialItemName = sundayItemName;
         if (sundayPrice) menu.sundayMenu.price = sundayPrice;
         if (sundayDinnerOpen !== undefined) menu.sundayMenu.isDinnerSlotOpen = sundayDinnerOpen;
+
+        // Allow updating rotis on Sunday too (stored in weekdayMenu structure for simplicity)
+        if (req.body.availableRotis) {
+            menu.weekdayMenu.availableRotis = req.body.availableRotis;
+        }
     }
 
     await menu.save();
@@ -463,6 +498,16 @@ exports.getAllOrders = catchAsync(async (req, res, next) => {
             'preparing': 'preparing', 'ready': 'ready'
         };
         orderFilter.status = statusMap[status] || status;
+    }
+
+    // Type Filter (Subscription vs Daily Meal)
+    const { type } = req.query;
+    if (type === 'subscription') {
+        orderFilter['metadata.isSubscription'] = true;
+        // Legacy orders don't strictly have isSubscription, so maybe exclude them or assume they aren't
+        // homemadeFilter... (Legacy didn't have subs)
+    } else if (type === 'meal') {
+        orderFilter['metadata.isSubscription'] = { $ne: true };
     }
 
     // Date Filter
@@ -752,36 +797,124 @@ exports.trackOrder = catchAsync(async (req, res, next) => {
 });
 
 exports.getAnalytics = catchAsync(async (req, res, next) => {
-    // Basic aggregation for dashboard
-    const stats = await HomemadeFoodOrder.aggregate([
+    const { startDate, endDate } = req.query;
+
+    const buildMatchStage = (start, end) => {
+        const query = { 'metadata.isHomemade': true };
+        if (start || end) {
+            query.createdAt = {};
+            if (start) query.createdAt.$gte = new Date(start);
+            if (end) query.createdAt.$lte = new Date(end);
+        }
+        return query;
+    };
+
+    // 1. Overall Stats (Total Orders, Total Revenue)
+    const overallStats = await Order.aggregate([
+        { $match: { 'metadata.isHomemade': true } },
         {
             $group: {
                 _id: null,
                 totalOrders: { $sum: 1 },
-                totalRevenue: { $sum: '$finalAmount' },
-                avgOrderValue: { $avg: '$finalAmount' },
-                totalDelivered: {
-                    $sum: { $cond: [{ $eq: ['$status', 'delivered'] }, 1, 0] }
+                totalRevenue: { $sum: '$finalPrice' }
+            }
+        }
+    ]);
+
+    // 2. Today's Stats
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const todayStats = await Order.aggregate([
+        { $match: buildMatchStage(todayStart, todayEnd) },
+        {
+            $group: {
+                _id: null,
+                totalOrders: { $sum: 1 },
+                totalRevenue: { $sum: '$finalPrice' },
+                lunchOrders: {
+                    $sum: { $cond: [{ $eq: ['$metadata.mealType', 'Lunch'] }, 1, 0] }
                 },
-                totalPending: {
-                    $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] }
+                dinnerOrders: {
+                    $sum: { $cond: [{ $eq: ['$metadata.mealType', 'Dinner'] }, 1, 0] }
+                },
+                lunchRevenue: {
+                    $sum: { $cond: [{ $eq: ['$metadata.mealType', 'Lunch'] }, '$finalPrice', 0] }
+                },
+                dinnerRevenue: {
+                    $sum: { $cond: [{ $eq: ['$metadata.mealType', 'Dinner'] }, '$finalPrice', 0] }
                 }
             }
         }
     ]);
 
-    const summary = stats.length > 0 ? stats[0] : {
-        totalOrders: 0,
-        totalRevenue: 0,
-        avgOrderValue: 0,
-        totalDelivered: 0,
-        totalPending: 0
-    };
+    // 3. Monthly Stats (Current Month)
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+
+    const monthlyStats = await Order.aggregate([
+        { $match: buildMatchStage(monthStart, new Date()) },
+        {
+            $group: {
+                _id: null,
+                totalOrders: { $sum: 1 },
+                totalRevenue: { $sum: '$finalPrice' },
+                lunchOrders: {
+                    $sum: { $cond: [{ $eq: ['$metadata.mealType', 'Lunch'] }, 1, 0] }
+                },
+                dinnerOrders: {
+                    $sum: { $cond: [{ $eq: ['$metadata.mealType', 'Dinner'] }, 1, 0] }
+                },
+                lunchRevenue: {
+                    $sum: { $cond: [{ $eq: ['$metadata.mealType', 'Lunch'] }, '$finalPrice', 0] }
+                },
+                dinnerRevenue: {
+                    $sum: { $cond: [{ $eq: ['$metadata.mealType', 'Dinner'] }, '$finalPrice', 0] }
+                }
+            }
+        }
+    ]);
+
+    // 4. Order Status Breakdown (All Time or filtered by date if provided)
+    const statusStats = await Order.aggregate([
+        { $match: buildMatchStage(startDate, endDate) },
+        {
+            $group: {
+                _id: '$status',
+                count: { $sum: 1 },
+                revenue: { $sum: '$finalPrice' }
+            }
+        }
+    ]);
+
+    // 5. Daily Trend (Last 7 days)
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    const dailyTrend = await Order.aggregate([
+        { $match: buildMatchStage(sevenDaysAgo, new Date()) },
+        {
+            $group: {
+                _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+                lunch: { $sum: { $cond: [{ $eq: ['$metadata.mealType', 'Lunch'] }, 1, 0] } },
+                dinner: { $sum: { $cond: [{ $eq: ['$metadata.mealType', 'Dinner'] }, 1, 0] } },
+                revenue: { $sum: '$finalPrice' }
+            }
+        },
+        { $sort: { _id: 1 } }
+    ]);
 
     res.status(200).json({
         success: true,
         data: {
-            summary
+            overall: overallStats[0] || { totalOrders: 0, totalRevenue: 0 },
+            today: todayStats[0] || { totalOrders: 0, totalRevenue: 0, lunchOrders: 0, dinnerOrders: 0, lunchRevenue: 0, dinnerRevenue: 0 },
+            monthly: monthlyStats[0] || { totalOrders: 0, totalRevenue: 0, lunchOrders: 0, dinnerOrders: 0, lunchRevenue: 0, dinnerRevenue: 0 },
+            statusBreakdown: statusStats,
+            dailyTrend
         }
     });
 });
