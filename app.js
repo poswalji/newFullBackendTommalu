@@ -167,6 +167,7 @@ app.use("/api/promotions", require("./routes/promotionRoutes"));
 app.use("/api/disputes", require("./routes/disputeRoutes"));
 app.use("/api/payouts", require("./routes/payoutRoutes"));
 app.use("/api/notifications", require("./routes/notificationRoutes"));
+app.use("/api/subscriptions", require("./routes/subscriptionRoutes"));
 // app.use("/api/admin/homemade-food", require("./routes/homemadeFoodRoutes")); // Moved up
 app.use("/api/homemade", require("./routes/homemadeFoodRoutes")); // Public access alias
 

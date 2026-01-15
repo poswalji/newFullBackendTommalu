@@ -275,7 +275,13 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
     let selectedMenuItem;
     let finalPrice = 0;
 
-    if (menu.dayOfWeek === 'Sunday') {
+    // Use frontend calculated total if available (trusting frontend for now for simple extra items logic)
+    // Otherwise fallback to server-side calc
+    if (req.body.totalPrice && req.body.items) {
+        if (menu.dayOfWeek === 'Sunday') selectedMenuItem = refs.sundayItem;
+        else selectedMenuItem = refs.dailyItem;
+        finalPrice = req.body.totalPrice;
+    } else if (menu.dayOfWeek === 'Sunday') {
         selectedMenuItem = refs.sundayItem;
         const sundayPrice = menu.sundayMenu.price || 120;
         finalPrice = sundayPrice * quantity;
@@ -290,7 +296,6 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
     const order = await Order.create({
         userId: req.user ? req.user._id : new mongoose.Types.ObjectId(), // Valid ID placeholder
         storeId: refs.store._id,
-        storeId: refs.store._id,
         deliveryAddress: {
             street: `${customAddress}, ${area}`,
             city: 'Jaipur',
@@ -301,7 +306,7 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
             menuItemId: selectedMenuItem._id,
             itemName: selectedMenuItem.name,
             quantity: quantity,
-            itemPrice: finalPrice / quantity,
+            itemPrice: finalPrice / quantity, // Approximate per unit if multiple plates
         }],
         totalAmount: finalPrice,
         finalPrice: finalPrice, // Schema requires this
@@ -312,7 +317,8 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
             isHomemade: true,
             customerName: customerName,
             customerPhone: mobileNumber,
-            mealType: slot
+            mealType: slot,
+            orderedItems: req.body.items ? req.body.items.join(', ') : '' // Store detailed items string
         }
     });
 
@@ -538,14 +544,18 @@ exports.getAllOrders = catchAsync(async (req, res, next) => {
         ];
     }
 
-    // 2. Fetch from both
-    const [legacyOrders, newOrders] = await Promise.all([
-        HomemadeFoodOrder.find(homemadeFilter).sort({ createdAt: -1 }).lean(),
-        Order.find(orderFilter).sort({ createdAt: -1 }).lean()
-    ]);
-    console.log(`📊 [Admin] Found ${legacyOrders.length} Legacy Orders, ${newOrders.length} New Orders`);
+    // 1. Get Today's Menu (needed for checking slots if needed, but simplified here)
+    const todayStr = getTodayDateString();
 
-    // 3. Map to Unified Format
+    // 2. Fetch One-Time Orders (Legacy + New)
+    const [legacyOrders, newOrders] = await Promise.all([
+        (type !== 'subscription') ? HomemadeFoodOrder.find(homemadeFilter).sort({ createdAt: -1 }).lean() : [],
+        (type !== 'subscription') ? Order.find(orderFilter).sort({ createdAt: -1 }).lean() : []
+    ]);
+
+    console.log(`📊 [Admin] Found ${legacyOrders.length} Legacy, ${newOrders.length} New`);
+
+    // 3. Map others (same as before)
     const mappedLegacy = legacyOrders.map(o => ({
         _id: o._id,
         source: 'legacy',
@@ -581,7 +591,7 @@ exports.getAllOrders = catchAsync(async (req, res, next) => {
             createdAt: o.createdAt,
             deliveryAddress: o.deliveryAddress,
             adminNotes: o.metadata?.adminNotes || '',
-            specialInstructions: o.metadata?.mealType
+            specialInstructions: o.metadata?.orderedItems || o.metadata?.mealType // Show full items list (Extra Roti etc) if available
         };
     });
 

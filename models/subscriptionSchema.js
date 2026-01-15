@@ -24,6 +24,13 @@ const subscriptionSchema = new mongoose.Schema({
             lng: Number
         }
     },
+    planId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'SubscriptionPlan',
+        required: true
+    },
+    planName: String, // Snapshot of plan title
+    price: Number,    // Snapshot of plan price
     planType: {
         type: String,
         enum: ['lunch', 'dinner', 'both'],

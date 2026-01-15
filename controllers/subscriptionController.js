@@ -5,31 +5,49 @@ const AppError = require('../utils/appError');
 // 1. Submit Subscription Request (Public/User)
 exports.createSubscription = catchAsync(async (req, res, next) => {
     const {
+        planId,
         customerName,
         mobileNumber,
         deliveryAddress,
-        planType,
         startDate,
         quantity,
         rotiPreference
     } = req.body;
 
-    // Calculate End Date (Fixed 30 days for now)
+    // 1. Validate Plan
+    const SubscriptionPlan = require('../models/subscriptionPlanSchema');
+    const plan = await SubscriptionPlan.findById(planId);
+
+    if (!plan) {
+        return next(new AppError('Invalid Subscription Plan ID', 400));
+    }
+
+    // 2. Calculate End Date (Based on plan duration or defaulting to 30)
     const start = new Date(startDate);
     const end = new Date(start);
-    end.setDate(start.getDate() + 30);
+    // Use plan duration if available, else 30 days
+    const duration = 30;
+    end.setDate(start.getDate() + duration);
 
     const subscription = await Subscription.create({
         userId: req.user ? req.user._id : undefined,
         customerName,
         mobileNumber,
         deliveryAddress,
-        planType,
+
+        // Link to Plan
+        planId: plan._id,
+        planName: plan.title,
+        price: plan.price,
+        planType: plan.planType,
+
         startDate: start,
         endDate: end,
+        duration: duration,
+
         quantity,
         rotiPreference,
-        status: 'pending'
+        status: 'pending' // Always start as pending
     });
 
     res.status(201).json({
@@ -105,5 +123,24 @@ exports.getDailyDeliveries = catchAsync(async (req, res, next) => {
         success: true,
         count: activeSubs.length,
         data: activeSubs
+    });
+});
+
+// 5. Get User's Own Subscriptions (Customer)
+exports.getUserSubscriptions = catchAsync(async (req, res, next) => {
+    // Determine userId from authenticated user or query param as fallback (for testing)
+    const userId = req.user._id;
+
+    if (!userId) {
+        return next(new AppError('User authentication required', 401));
+    }
+
+    const subscriptions = await Subscription.find({ userId })
+        .sort({ createdAt: -1 });
+
+    res.status(200).json({
+        success: true,
+        count: subscriptions.length,
+        data: subscriptions
     });
 });

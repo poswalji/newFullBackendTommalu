@@ -389,7 +389,7 @@ exports.getCustomerOrders = asyncHandler(async (req, res, next) => {
 
     const user = await User.findById(customerId).populate({
         path: 'orders',
-        select: 'items finalPrice status createdAt deliveryAddress storeId rejectionReason cancellationReason',
+        select: 'items finalPrice status createdAt deliveryAddress storeId rejectionReason cancellationReason metadata',
         populate: {
             path: 'storeId',
             select: 'storeName'
@@ -417,7 +417,10 @@ exports.getCustomerOrders = asyncHandler(async (req, res, next) => {
             updatedAt: order.updatedAt,
             rejectionReason: order.rejectionReason,
             cancellationReason: order.cancellationReason,
-            storeName: order.storeId?.storeName
+            rejectionReason: order.rejectionReason,
+            cancellationReason: order.cancellationReason,
+            storeName: order.storeId?.storeName,
+            metadata: order.metadata
         })),
         total: user.orders.length
     });
@@ -1119,7 +1122,9 @@ exports.getOrderById = asyncHandler(async (req, res, next) => {
             updatedAt: order.updatedAt,
             customerName: order.userId?.name,
             customerEmail: order.userId?.email,
-            storeName: order.storeId?.storeName
+            customerEmail: order.userId?.email,
+            storeName: order.storeId?.storeName,
+            metadata: order.metadata
         }
     });
 });
