@@ -43,7 +43,7 @@ const notificationSchema = new mongoose.Schema({
   },
   relatedModel: {
     type: String,
-    enum: ["Order", "Payment", "Payout", "Dispute", "Store", null]
+    enum: ["Order", "Payment", "Payout", "Dispute", "Store", "Subscription", null]
   },
   read: {
     type: Boolean,
@@ -65,4 +65,3 @@ notificationSchema.index({ userId: 1, read: 1, createdAt: -1 });
 notificationSchema.index({ userId: 1, createdAt: -1 });
 
 module.exports = mongoose.model("Notification", notificationSchema);
-

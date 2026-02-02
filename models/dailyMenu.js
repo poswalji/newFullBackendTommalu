@@ -16,9 +16,19 @@ const dailyMenuSchema = new mongoose.Schema({
         lunchSabji: { type: String, default: '' },
         dinnerSabji: { type: String, default: '' },
         fixedPrice: { type: Number, default: 89 },
-        fixedItems: {
+        // Distinct Menu Items for Lunch vs Dinner
+        lunchItems: {
             type: [String],
             default: ['Chulhe ki Roti', 'Salad', 'Lahsun Chutney', 'Desi Chhach']
+        },
+        dinnerItems: {
+            type: [String],
+            default: ['Chulhe ki Roti', 'Salad', 'Lahsun Chutney', 'Sweet']
+        },
+        // Deprecated but kept for backward compatibility (can be removed later)
+        fixedItems: {
+            type: [String],
+            default: []
         },
         availableRotis: [{
             type: { type: String, required: true }, // e.g., 'Wheat', 'Bajra'
