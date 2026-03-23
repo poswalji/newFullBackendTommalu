@@ -153,7 +153,7 @@ app.use(async (req, res, next) => {
 // Routes are registered here to ensure they're available for Vercel serverless functions
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/customer", require("./routes/customerRoutes"));
-app.use("/api/store-owner", require("./routes/storeOwnerRoutes"));
+// app.use("/api/store-owner", require("./routes/storeOwnerRoutes"));
 app.use("/api/admin/homemade-food", require("./routes/homemadeFoodRoutes"));
 app.use("/api/admin", require("./routes/adminRoutes"));
 app.use("/api/orders", require("./routes/orderRoutes"));
@@ -165,7 +165,7 @@ app.use("/api/payments", require("./routes/paymentRoutes"));
 app.use("/api/reviews", require("./routes/reviewRoutes"));
 app.use("/api/promotions", require("./routes/promotionRoutes"));
 app.use("/api/disputes", require("./routes/disputeRoutes"));
-app.use("/api/payouts", require("./routes/payoutRoutes"));
+// app.use("/api/payouts", require("./routes/payoutRoutes"));
 app.use("/api/notifications", require("./routes/notificationRoutes"));
 app.use("/api/subscriptions", require("./routes/subscriptionRoutes"));
 // app.use("/api/admin/homemade-food", require("./routes/homemadeFoodRoutes")); // Moved up

@@ -142,201 +142,12 @@ router.get('/users/:id/history/orders', restrictAdminTo('superAdmin', 'supportAd
  */
 router.get('/users/:id/history/transactions', restrictAdminTo('superAdmin', 'supportAdmin'), adminController.getUserTransactions);
 
-// Store verification & moderation (verification subset here)
-/**
- * @openapi
- * /api/admin/stores/pending:
- *   get:
- *     tags: [Admin]
- *     summary: List pending stores for verification
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Pending stores
- */
-router.get('/stores/pending', restrictAdminTo('superAdmin', 'supportAdmin'), adminController.listPendingStores);
-/**
- * @openapi
- * /api/admin/stores/{id}/approve:
- *   post:
- *     tags: [Admin]
- *     summary: Approve a store (makes it active)
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: string }
- *     responses:
- *       200:
- *         description: Store approved
- */
-router.post('/stores/:id/approve', restrictAdminTo('superAdmin'), adminController.approveStore);
-/**
- * @openapi
- * /api/admin/stores/{id}/reject:
- *   post:
- *     tags: [Admin]
- *     summary: Reject a store with reason
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: string }
- *     requestBody:
- *       required: false
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               reason:
- *                 type: string
- *     responses:
- *       200:
- *         description: Store rejected
- */
-router.post('/stores/:id/reject', restrictAdminTo('superAdmin'), adminController.rejectStore);
 
-// Store moderation
-/**
- * @openapi
- * /api/admin/stores/{id}/suspend:
- *   patch:
- *     tags: [Admin]
- *     summary: Suspend a store
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: string }
- *     responses:
- *       200:
- *         description: Store suspended
- */
-router.patch('/stores/:id/suspend', restrictAdminTo('superAdmin'), adminController.suspendStore);
-/**
- * @openapi
- * /api/admin/stores/{id}/reactivate:
- *   patch:
- *     tags: [Admin]
- *     summary: Reactivate a store
- *     description: Reactivates a suspended store, making it active and available again.
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: string }
- *     responses:
- *       200:
- *         description: Store reactivated
- */
-router.patch('/stores/:id/reactivate', restrictAdminTo('superAdmin'), adminController.reactivateStore);
-/**
- * @openapi
- * /api/admin/stores/{id}/metadata:
- *   patch:
- *     tags: [Admin]
- *     summary: Update store metadata
- *     description: Update store category, description, timings, and delivery config.
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: string }
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               category: { type: string }
- *               description: { type: string }
- *               openingTime: { type: string }
- *               closingTime: { type: string }
- *               deliveryFee: { type: number }
- *               minOrder: { type: number }
- *     responses:
- *       200:
- *         description: Store updated
- */
-router.patch('/stores/:id/metadata', restrictAdminTo('superAdmin'), adminController.updateStoreMetadata);
-/**
- * @openapi
- * /api/admin/stores/{id}/commission:
- *   patch:
- *     tags: [Admin]
- *     summary: Update store commission rate
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: string }
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [commissionRate]
- *             properties:
- *               commissionRate:
- *                 type: number
- *                 minimum: 0
- *                 maximum: 100
- *     responses:
- *       200:
- *         description: Commission updated
- */
-router.patch('/stores/:id/commission', restrictAdminTo('superAdmin'), adminController.updateStoreCommission);
-/**
- * @openapi
- * /api/admin/stores/{id}/delivery-fee:
- *   patch:
- *     tags: [Admin]
- *     summary: Update store delivery charge (admin only)
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: string }
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [deliveryFee]
- *             properties:
- *               deliveryFee:
- *                 type: number
- *                 minimum: 0
- *                 description: Delivery charge in rupees (default 30)
- *     responses:
- *       200:
- *         description: Delivery charge updated
- */
-router.patch('/stores/:id/delivery-fee', restrictAdminTo('superAdmin'), adminController.updateStoreDeliveryFee);
 
 // Analytics & Reports
 router.get('/analytics/dashboard', restrictAdminTo('superAdmin', 'supportAdmin'), adminController.getDashboardAnalytics);
 router.get('/analytics/orders', restrictAdminTo('superAdmin', 'supportAdmin'), adminController.getOrderAnalytics);
-router.get('/analytics/stores', restrictAdminTo('superAdmin', 'supportAdmin'), adminController.getStoreAnalytics);
+// router.get('/analytics/stores', restrictAdminTo('superAdmin', 'supportAdmin'), adminController.getStoreAnalytics);
 router.get('/analytics/revenue', restrictAdminTo('superAdmin'), adminController.getRevenueAnalytics);
 router.get('/reports/export', restrictAdminTo('superAdmin', 'supportAdmin'), adminController.exportReport);
 
@@ -352,37 +163,12 @@ router.post('/disputes/:id/resolve', restrictAdminTo('superAdmin'), adminControl
 router.post('/disputes/:id/escalate', restrictAdminTo('superAdmin'), adminController.escalateDispute);
 router.post('/disputes/:id/close', restrictAdminTo('superAdmin', 'supportAdmin'), adminController.closeDispute);
 
-// Payout Management
-router.get('/payouts', restrictAdminTo('superAdmin'), adminController.listPayouts);
-router.get('/payouts/:id', restrictAdminTo('superAdmin'), adminController.getPayoutById);
-router.post('/payouts/generate', restrictAdminTo('superAdmin'), adminController.generatePayout);
-router.post('/payouts/:id/approve', restrictAdminTo('superAdmin'), adminController.approvePayout);
-router.post('/payouts/:id/complete', restrictAdminTo('superAdmin'), adminController.completePayout);
+
 
 // Order Override
 router.post('/orders/:id/cancel', restrictAdminTo('superAdmin'), adminController.cancelOrderAdmin);
 
-// All Stores (with filters)
-router.get('/stores', restrictAdminTo('superAdmin', 'supportAdmin'), adminController.listAllStores);
-/**
- * @openapi
- * /api/admin/stores/{id}:
- *   get:
- *     tags: [Admin]
- *     summary: Get store by ID (admin view)
- *     description: Get detailed store information including statistics and menu items.
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: string }
- *     responses:
- *       200:
- *         description: Store details
- */
-router.get('/stores/:id', restrictAdminTo('superAdmin', 'supportAdmin'), adminController.getStoreById);
+
 
 module.exports = router;
 

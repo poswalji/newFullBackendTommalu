@@ -13,7 +13,7 @@ router.post('/order', isLoggedIn, dailyMenuController.placeOrder);
 // Admin Routes (Protected)
 // Assuming 'storeOwner' or 'admin' role is required
 router.use(protect); // Ensure user is logged in
-router.use(restrictTo('admin', 'storeOwner')); // Restrict to admin/owner
+router.use(restrictTo('admin')); // Restrict to admin only
 
 router.patch('/update', dailyMenuController.updateMenu);
 router.patch('/order/:id/confirm', dailyMenuController.confirmOrder);
