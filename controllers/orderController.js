@@ -258,6 +258,21 @@ exports.createOrder = asyncHandler(async (req, res, next) => {
     const deliveryCharge = 30; // Default, should be calculated from store
     const validatedFinalPrice = itemsTotal + deliveryCharge - validatedDiscount;
 
+    // ✅ EXTRACT AREA
+    const area = req.body.area || 'other';
+
+    // ✅ AUTO-ASSIGN DELIVERY BOY
+    let assignedTo = null;
+    try {
+        const DeliveryBoy = require('../models/deliveryBoy');
+        const activeBoy = await DeliveryBoy.findOne({ isActive: true });
+        if (activeBoy) {
+            assignedTo = activeBoy._id;
+        }
+    } catch (err) {
+        console.error("Error auto-assigning delivery boy:", err);
+    }
+
     // Create order with fraud flags in metadata
     const newOrder = await Order.create({
         storeId,
@@ -269,6 +284,8 @@ exports.createOrder = asyncHandler(async (req, res, next) => {
         finalPrice: validatedFinalPrice,
         deliveryAddress,
         paymentMethod, // ✅ Only cash on delivery
+        area, // ✅ Save the area
+        assignedTo, // ✅ Auto-assign delivery boy
         metadata: {
             fraudFlags: fraudFlags.length > 0 ? fraudFlags : undefined,
             fraudChecked: true,
@@ -770,6 +787,18 @@ exports.createOrderFromCart = asyncHandler(async (req, res, next) => {
 
     const finalPrice = itemsTotal + deliveryCharge - validatedDiscount;
 
+    // ✅ AUTO-ASSIGN DELIVERY BOY
+    let assignedTo = null;
+    try {
+        const DeliveryBoy = require('../models/deliveryBoy');
+        const activeBoy = await DeliveryBoy.findOne({ isActive: true });
+        if (activeBoy) {
+            assignedTo = activeBoy._id;
+        }
+    } catch (err) {
+        console.error("Error auto-assigning delivery boy:", err);
+    }
+
     // Create order with delivery charge stored separately for transparency
     const newOrder = await Order.create({
         storeId: cart.storeId,
@@ -781,6 +810,7 @@ exports.createOrderFromCart = asyncHandler(async (req, res, next) => {
         finalPrice,
         deliveryAddress,
         paymentMethod: 'cash_on_delivery', // ✅ Only COD
+        assignedTo, // ✅ Auto-assign delivery boy
         status: "Pending"
     });
 
@@ -1256,6 +1286,111 @@ exports.updateOrderStatusAdmin = asyncHandler(async (req, res, next) => {
             customerName: updated.userId?.name,
             customerEmail: updated.userId?.email,
             storeName: updated.storeId?.storeName
+        }
+    });
+});
+
+// ✅ DELIVERY BOY ENDPOINTS
+exports.getDeliveryOrders = asyncHandler(async (req, res, next) => {
+    // Only show orders assigned to the logged-in delivery boy
+    const deliveryBoyId = req.deliveryBoy.id;
+    console.log('Fetching orders for deliveryBoyId:', deliveryBoyId);
+
+    const query = { assignedTo: new mongoose.Types.ObjectId(deliveryBoyId) };
+    
+    // Check for optional status filter from query params
+    if (req.query.status) {
+        query.status = req.query.status;
+    }
+
+    const orders = await Order.find(query)
+        .populate('userId', 'name email phone')
+        .populate('storeId', 'storeName address')
+        .sort({ createdAt: -1 });
+
+    console.log(`Found ${orders.length} orders for this delivery boy. Query:`, query);
+
+    // Format orders
+    const formattedOrders = orders.map(order => {
+        // Handle Homemade Food (Thali) metadata fallback
+        const isHomemade = order.metadata?.isHomemade === true;
+        
+        return {
+            id: order._id,
+            customerName: isHomemade ? order.metadata?.customerName : order.userId?.name,
+            phone: isHomemade ? order.metadata?.customerPhone : order.userId?.phone,
+            address: order.deliveryAddress,
+            items: order.items,
+            timeSlot: isHomemade ? order.metadata?.mealType : order.timeSlot,
+            paymentMethod: order.paymentMethod,
+            status: order.status,
+            assignedTo: order.assignedTo,
+            area: order.area || 'Home Delivery', // Provide fallback for grouping
+            createdAt: order.createdAt,
+            specialInstructions: isHomemade ? order.metadata?.orderedItems : ''
+        };
+    });
+
+    // ✅ Group by area
+    const groupedOrders = formattedOrders.reduce((acc, order) => {
+        const area = order.area || 'Home Delivery';
+        if (!acc[area]) {
+            acc[area] = [];
+        }
+        acc[area].push(order);
+        return acc;
+    }, {});
+
+    res.status(200).json({
+        success: true,
+        data: groupedOrders,
+        total: orders.length
+    });
+});
+
+exports.updateDeliveryOrderStatus = asyncHandler(async (req, res, next) => {
+    const deliveryBoyId = req.deliveryBoy.id;
+    const orderId = req.params.orderId;
+
+    // Check if order exists and is assigned to this delivery boy
+    const order = await Order.findOne({ _id: orderId, assignedTo: deliveryBoyId });
+    if (!order) {
+        return next(new AppError('Order not found or not assigned to you', 404));
+    }
+
+    const { status } = req.body;
+    // Delivery boy can typically only mark as "Delivered" or "OutForDelivery" 
+    // but we'll accept what's requested. Let's assume they're marking as Delivered.
+    if (!status) {
+        return next(new AppError('Status is required', 400));
+    }
+
+    order.status = status;
+    
+    if (status === 'Delivered') {
+        order.deliveredTime = new Date();
+        
+        // Update payment status if it was COD
+        try {
+            const payment = await Payment.findOne({ orderId: order._id });
+            if (payment && payment.paymentMethod === 'cash_on_delivery' && payment.status === 'pending') {
+                payment.status = 'completed';
+                await payment.markEligibleForPayout();
+                await payment.save();
+            }
+        } catch (err) {
+            console.error('Error updating payment on delivery', err);
+        }
+    }
+
+    await order.save();
+
+    res.status(200).json({
+        success: true,
+        message: `Order marked as ${status}`,
+        data: {
+            id: order._id,
+            status: order.status
         }
     });
 });

@@ -6,6 +6,12 @@ const { protect, restrictTo } = require('../middleware/authMiddleware');
 // ✅ Public order routes (if needed)
 // router.get('/public/:orderId', orderController.getOrderPublic);
 
+const { protectDelivery } = require('../middleware/authMiddleware');
+
+// ✅ Delivery Boy routes (Custom Token Auth)
+router.get('/delivery', protectDelivery, orderController.getDeliveryOrders);
+router.put('/delivery/:orderId/delivered', protectDelivery, orderController.updateDeliveryOrderStatus);
+
 // ✅ Protected order routes
 router.use(protect);
 

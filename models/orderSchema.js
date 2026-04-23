@@ -128,9 +128,30 @@ const OrderSchema = new mongoose.Schema({
   // ✅ Metadata for fraud detection, analytics, etc.
   metadata: {
     type: mongoose.Schema.Types.Mixed
+  },
+  
+  // ✅ Delivery Boy fields
+  assignedTo: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'DeliveryBoy',
+    default: null
+  },
+  timeSlot: {
+    type: String,
+    enum: ['lunch', 'dinner', null],
+    default: null
+  },
+  // ✅ Area-based delivery
+  area: {
+    type: String,
+    enum: ['nims', 'achrol', 'chomu', 'other'],
+    default: 'other'
   }
 },
   { timestamps: true });
+
+// ✅ Index for fast delivery boy assignment queries
+OrderSchema.index({ area: 1, assignedTo: 1 });
 
 // Pre-save hook to calculate finalPrice if not set
 OrderSchema.pre('save', function (next) {

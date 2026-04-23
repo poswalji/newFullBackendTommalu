@@ -374,6 +374,18 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
         finalPrice = dailyPrice * quantity;
     }
 
+    // ✅ AUTO-ASSIGN DELIVERY BOY
+    let assignedTo = null;
+    try {
+        const DeliveryBoy = require('../models/deliveryBoy');
+        const activeBoy = await DeliveryBoy.findOne({ isActive: true });
+        if (activeBoy) {
+            assignedTo = activeBoy._id;
+        }
+    } catch (err) {
+        console.error("Error auto-assigning delivery boy:", err);
+    }
+
     // Create Order
     const order = await Order.create({
         userId: req.user ? req.user._id : new mongoose.Types.ObjectId(), // Valid ID placeholder
@@ -394,6 +406,7 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
         finalPrice: finalPrice, // Schema requires this
         paymentMethod: 'cash_on_delivery',
         status: 'Pending',
+        assignedTo, // ✅ Auto-assign delivery boy
         metadata: {
             dailyMenuDate: todayStr,
             isHomemade: true,

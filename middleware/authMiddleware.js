@@ -110,3 +110,44 @@ exports.checkOwnership = (model) => {
         next();
     });
 };
+
+// ✅ Delivery Auth Middleware
+exports.protectDelivery = asyncHandler(async (req, res, next) => {
+    let token;
+
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+        token = req.headers.authorization.split(' ')[1];
+    }
+
+    if (!token) {
+        return next(new AppError('Delivery token is missing. Please log in.', 401));
+    }
+
+    try {
+        // Verify token
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+        // Verify role
+        if (decoded.role !== 'delivery') {
+            return next(new AppError('Invalid token role. Access denied.', 403));
+        }
+
+        // Fetch delivery boy
+        const DeliveryBoy = require('../models/deliveryBoy');
+        const deliveryBoy = await DeliveryBoy.findById(decoded.id);
+
+        if (!deliveryBoy) {
+            return next(new AppError('Delivery account no longer exists.', 401));
+        }
+
+        if (!deliveryBoy.isActive) {
+            return next(new AppError('Delivery account is deactivated.', 401));
+        }
+
+        // Attach delivery boy to request
+        req.deliveryBoy = deliveryBoy;
+        next();
+    } catch (error) {
+        return next(new AppError('Invalid or expired delivery token. Please log in again.', 401));
+    }
+});
