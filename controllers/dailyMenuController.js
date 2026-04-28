@@ -49,7 +49,7 @@ const ensureReferences = async () => {
         dailyItem = await MenuItem.create({
             storeId: store._id,
             name: "DAILY HOME-MADE THALI",
-            price: 89,
+            price: 99,
             category: "Homemade Food",
             description: "Daily special homemade thali",
             foodType: "veg"
@@ -83,16 +83,10 @@ exports.getTodayMenu = catchAsync(async (req, res, next) => {
 
     // Auto-create if not exists (Auto Reset Logic)
     if (!menu) {
-        let lunchSabji = 'Aloo Pyaj';
-        let dinnerSabji = 'Sev Tamatar';
-        let lunchItems = ['Chulhe ki Roti', 'Salad', 'Lahsun Chutney', 'Desi Chhach'];
-        let dinnerItems = ['Chulhe ki Roti', 'Salad', 'Lahsun Chutney', 'Sweet'];
-
-        // Special Wednesday Logic
-        if (dayName === 'Wednesday') {
-            dinnerSabji = 'Special Paratha Thali';
-            dinnerItems = ['Methi Paratha', 'Hara dhaniya chutney', 'Tamatar Mithi Chutney', 'Dahi'];
-        }
+        let lunchSabji = 'Sabji';
+        let dinnerSabji = 'Sabji';
+        let lunchItems = ['5 Ghee Roti', 'Salad', 'Dal OR Lahsun Chutney', 'Desi Chhach'];
+        let dinnerItems = ['5 Ghee Roti', 'Salad', 'Dal OR Lahsun Chutney', 'Desi Chhach'];
 
         menu = await DailyMenu.create({
             date: todayStr,
@@ -139,8 +133,16 @@ exports.getTodayMenu = catchAsync(async (req, res, next) => {
                 deliveryTime: "7:00–8:00 PM",
                 message: isDinnerOpen ? "Preorders Open" : "Preorders Closed"
             }
-        }
+        },
+        isServiceOff: menu.isServiceOff || false
     };
+
+    if (menu.isServiceOff) {
+        responseData.slots.lunch.isOpen = false;
+        responseData.slots.dinner.isOpen = false;
+        responseData.slots.lunch.message = "Service Off";
+        responseData.slots.dinner.message = "Service Off";
+    }
 
     if (menu.dayOfWeek === 'Sunday') {
         const specialName = menu.sundayMenu.specialItemName || "Special Surprise";
@@ -156,9 +158,9 @@ exports.getTodayMenu = catchAsync(async (req, res, next) => {
             // Explicit Slot Products
             lunchProduct: {
                 name: "Standard Homa-made Thali",
-                sabji: menu.weekdayMenu.lunchSabji || 'Standard Sabji',
-                price: menu.weekdayMenu.fixedPrice || 89,
-                includes: menu.weekdayMenu.lunchItems || ['Chulhe ki Roti', 'Salad', 'Lahsun Chutney', 'Desi Chhach']
+                sabji: menu.weekdayMenu.lunchSabji || 'Sabji',
+                price: menu.weekdayMenu.fixedPrice || 99,
+                includes: menu.weekdayMenu.lunchItems || ['5 Ghee Roti', 'Salad', 'Dal OR Lahsun Chutney', 'Desi Chhach']
             },
             dinnerProduct: {
                 name: specialName,
@@ -175,8 +177,8 @@ exports.getTodayMenu = catchAsync(async (req, res, next) => {
         // Include availableRotis for Sunday if configured (using weekdayMenu storage)
         responseData.product.availableRotis = menu.weekdayMenu.availableRotis || [];
     } else {
-        const defaultLunch = ['Chulhe ki Roti', 'Salad', 'Lahsun Chutney', 'Desi Chhach'];
-        const defaultDinner = ['Chulhe ki Roti', 'Salad', 'Lahsun Chutney', 'Sweet'];
+        const defaultLunch = ['5 Ghee Roti', 'Salad', 'Dal OR Lahsun Chutney', 'Desi Chhach'];
+        const defaultDinner = ['5 Ghee Roti', 'Salad', 'Dal OR Lahsun Chutney', 'Desi Chhach'];
 
         const lunchItems = (menu.weekdayMenu.lunchItems && menu.weekdayMenu.lunchItems.length > 0)
             ? menu.weekdayMenu.lunchItems
@@ -188,7 +190,7 @@ exports.getTodayMenu = catchAsync(async (req, res, next) => {
 
         responseData.product = {
             name: "DAILY HOME-MADE THALI",
-            price: menu.weekdayMenu.fixedPrice || 89,
+            price: menu.weekdayMenu.fixedPrice || 99,
             lunchItems: lunchItems,
             dinnerItems: dinnerItems,
             // 'includes' legacy
@@ -219,15 +221,10 @@ exports.updateMenu = catchAsync(async (req, res, next) => {
         const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
         const dayName = days[dateObj.getDay()];
 
-        let lunchSabji = 'Upcoming Lunch';
-        let dinnerSabji = 'Upcoming Dinner';
-        let lunchItems = ['Chulhe ki Roti', 'Salad', 'Lahsun Chutney', 'Desi Chhach'];
-        let dinnerItems = ['Chulhe ki Roti', 'Salad', 'Lahsun Chutney', 'Sweet'];
-
-        if (dayName === 'Wednesday') {
-            dinnerSabji = 'Special Paratha Thali';
-            dinnerItems = ['Methi Paratha', 'Hara dhaniya chutney', 'Tamatar Mithi Chutney', 'Dahi'];
-        }
+        let lunchSabji = 'Sabji';
+        let dinnerSabji = 'Sabji';
+        let lunchItems = ['5 Ghee Roti', 'Salad', 'Dal OR Lahsun Chutney', 'Desi Chhach'];
+        let dinnerItems = ['5 Ghee Roti', 'Salad', 'Dal OR Lahsun Chutney', 'Desi Chhach'];
 
         menu = await DailyMenu.create({
             date: targetDate,
@@ -255,7 +252,8 @@ exports.updateMenu = catchAsync(async (req, res, next) => {
         sundayItemName,
         sundayPrice,
         sundayDinnerOpen,
-        extraRotiPrice
+        extraRotiPrice,
+        isServiceOff
     } = req.body;
 
     if (menu.dayOfWeek !== 'Sunday') {
@@ -291,6 +289,10 @@ exports.updateMenu = catchAsync(async (req, res, next) => {
         }
     }
 
+    if (isServiceOff !== undefined) {
+        menu.isServiceOff = isServiceOff;
+    }
+
     await menu.save();
 
     res.status(200).json({
@@ -306,6 +308,10 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
     const menu = await DailyMenu.findOne({ date: todayStr });
 
     if (!menu) return next(new AppError('Menu not open for today', 400));
+    
+    if (menu.isServiceOff) {
+        return next(new AppError('Hum abhi next batch prepare kar rahe hain. Best quality maintain karne ke liye thoda break lete hain 🙏', 400));
+    }
 
     const { customerName, mobileNumber, area, customAddress, quantity, slot } = req.body;
 
@@ -359,7 +365,7 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
         // Hybrid Sunday Logic
         if (slot === 'Lunch') {
             selectedMenuItem = refs.dailyItem;
-            const dailyPrice = menu.weekdayMenu.fixedPrice || 89;
+            const dailyPrice = menu.weekdayMenu.fixedPrice || 99;
             finalPrice = dailyPrice * quantity;
         } else {
             // Dinner = Special
@@ -369,8 +375,8 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
         }
     } else {
         selectedMenuItem = refs.dailyItem;
-        // Use dynamic price from DB, default to 89 if missing
-        const dailyPrice = menu.weekdayMenu.fixedPrice || 89;
+        // Use dynamic price from DB, default to 99 if missing
+        const dailyPrice = menu.weekdayMenu.fixedPrice || 99;
         finalPrice = dailyPrice * quantity;
     }
 
@@ -485,7 +491,8 @@ exports.getDashboardStats = catchAsync(async (req, res, next) => {
         plates: o.items.reduce((acc, i) => acc + i.quantity, 0),
         mealType: o.metadata.mealType || "Unknown",
         amount: o.finalPrice,
-        status: o.status
+        status: o.status,
+        isSubscription: o.metadata.isSubscription || false
     }));
 
     res.status(200).json({

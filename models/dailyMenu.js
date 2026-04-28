@@ -11,19 +11,24 @@ const dailyMenuSchema = new mongoose.Schema({
         enum: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
         required: true
     },
+    // Emergency / Manual Service Off
+    isServiceOff: {
+        type: Boolean,
+        default: false
+    },
     // Weekday Configuration
     weekdayMenu: {
         lunchSabji: { type: String, default: '' },
         dinnerSabji: { type: String, default: '' },
-        fixedPrice: { type: Number, default: 89 },
+        fixedPrice: { type: Number, default: 99 },
         // Distinct Menu Items for Lunch vs Dinner
         lunchItems: {
             type: [String],
-            default: ['Chulhe ki Roti', 'Salad', 'Lahsun Chutney', 'Desi Chhach']
+            default: ['5 Ghee Roti', 'Salad', 'Dal OR Lahsun Chutney', 'Desi Chhach']
         },
         dinnerItems: {
             type: [String],
-            default: ['Chulhe ki Roti', 'Salad', 'Lahsun Chutney', 'Sweet']
+            default: ['5 Ghee Roti', 'Salad', 'Dal OR Lahsun Chutney', 'Desi Chhach']
         },
         // Deprecated but kept for backward compatibility (can be removed later)
         fixedItems: {
