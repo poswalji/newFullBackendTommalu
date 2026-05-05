@@ -8,9 +8,9 @@ router.get('/store/:storeId', reviewController.getStoreReviews);
 
 // Customer routes
 router.use(protect);
-router.post('/', restrictTo('customer'), reviewController.createReview);
-router.get('/customer/my-reviews', restrictTo('customer'), reviewController.getUserReviews);
-router.patch('/:id', restrictTo('customer'), reviewController.updateReview);
+router.post('/', reviewController.createReview);
+router.get('/customer/my-reviews', reviewController.getUserReviews);
+router.patch('/:id', reviewController.updateReview);
 router.post('/:id/helpful', protect, reviewController.markHelpful);
 router.post('/:id/report', protect, reviewController.reportReview);
 

@@ -11,6 +11,9 @@ router.post('/request', subscriptionController.createSubscriptionRequest);
 router.get('/my-requests', subscriptionController.getMySubscriptionRequests);
 router.get('/my-subscriptions', subscriptionController.getUserSubscriptions);
 
+// Customer: Pause Request
+router.post('/:id/pause-request', subscriptionController.requestPause);
+
 // Admin Routes
 // 1. Manage Requests
 router.get('/requests', subscriptionController.getAllSubscriptionRequests); // ?status=pending
@@ -22,5 +25,9 @@ router.get('/', subscriptionController.getAllActiveSubscriptions);
 router.patch('/:id/status', subscriptionController.updateSubscriptionStatus); // Pause/Resume
 router.patch('/:id/period', subscriptionController.updateSubscriptionPeriod); // Extend/Reduce
 router.patch('/:id/price', subscriptionController.updateSubscriptionPrice);   // Update Price
+
+// Admin: Manage Pause Requests
+router.post('/:id/pause-request/:requestId/approve', subscriptionController.approvePauseRequest);
+router.post('/:id/pause-request/:requestId/reject', subscriptionController.rejectPauseRequest);
 
 module.exports = router;

@@ -130,10 +130,10 @@ exports.createOrder = asyncHandler(async (req, res, next) => {
         return next(new AppError(`Store is currently closed: ${storeStatus.reason}. Please try again later.`, 400));
     }
 
-    // Verify user is a customer
+    // Verify user exists
     const user = await User.findById(userId);
-    if (!user || user.role !== 'customer') {
-        return next(new AppError('Only customers can create orders', 400));
+    if (!user) {
+        return next(new AppError('User not found', 400));
     }
 
     // ✅ FRAUD DETECTION (skip in test environment)
@@ -413,8 +413,8 @@ exports.getCustomerOrders = asyncHandler(async (req, res, next) => {
         }
     });
 
-    if (!user || user.role !== 'customer') {
-        return next(new AppError('Customer not found', 404));
+    if (!user) {
+        return next(new AppError('User not found', 404));
     }
 
     res.status(200).json({
@@ -1295,9 +1295,11 @@ exports.getDeliveryOrders = asyncHandler(async (req, res, next) => {
     // Only show orders assigned to the logged-in delivery boy
     const deliveryBoyId = req.deliveryBoy.id;
     console.log('Fetching orders for deliveryBoyId:', deliveryBoyId);
-
-    const query = { assignedTo: new mongoose.Types.ObjectId(deliveryBoyId) };
-    
+    // Since the user requested all orders to go to their single delivery boy, 
+    // we fetch ALL orders from the last 24 hours.
+    const query = { 
+        createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+    };    
     // Check for optional status filter from query params
     if (req.query.status) {
         query.status = req.query.status;

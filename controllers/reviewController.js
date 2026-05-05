@@ -10,10 +10,7 @@ exports.createReview = asyncHandler(async (req, res, next) => {
   const userId = req.user._id;
   const { orderId, storeRating, storeComment, itemRatings, deliveryRating, deliveryComment } = req.body;
   
-  if (req.user.role !== 'customer') {
-    return next(new AppError('Only customers can create reviews', 403));
-  }
-  
+  // Store owners, admins, and delivery boys can also leave reviews for their orders
   // Check if order exists and belongs to user
   const order = await Order.findById(orderId)
     .populate('storeId')

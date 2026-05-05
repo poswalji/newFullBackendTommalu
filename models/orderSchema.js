@@ -61,7 +61,8 @@ const OrderSchema = new mongoose.Schema({
     city: { type: String, required: true },
     state: { type: String },
     pincode: { type: String, required: true },
-    country: { type: String, default: "India" }
+    country: { type: String, default: "India" },
+    locationLink: { type: String }
   },
 
   items: [

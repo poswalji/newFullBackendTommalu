@@ -75,6 +75,18 @@ const subscriptionSchema = new mongoose.Schema({
         },
         deliverySlot: String, // 'lunch' or 'dinner'
         notes: String
+    }],
+
+    // Pause functionality tracking
+    pausedDaysUsed: {
+        type: Number,
+        default: 0
+    },
+    pauseRequests: [{
+        date: { type: Date, required: true },
+        status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+        requestDate: { type: Date, default: Date.now },
+        reason: String
     }]
 }, {
     timestamps: true

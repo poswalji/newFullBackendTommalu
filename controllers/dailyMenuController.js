@@ -313,7 +313,7 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
         return next(new AppError('Hum abhi next batch prepare kar rahe hain. Best quality maintain karne ke liye thoda break lete hain 🙏', 400));
     }
 
-    const { customerName, mobileNumber, area, customAddress, quantity, slot } = req.body;
+    const { customerName, mobileNumber, area, customAddress, quantity, slot, locationLink, promoCode } = req.body;
 
     // Basic Validation
     if (!customerName || !mobileNumber || !area || !quantity || !slot) {
@@ -327,9 +327,9 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
     const now = getIndianTime();
     const currentHour = now.getHours();
 
-    // 9 AM Start Time Check
-    if (currentHour < 9) {
-        return next(new AppError('Pre-orders open at 9:00 AM', 400));
+    // 8 AM Start Time Check
+    if (currentHour < 8) {
+        return next(new AppError('Pre-orders open at 8:00 AM', 400));
     }
 
     // Slot Validation & Time Check
@@ -380,6 +380,24 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
         finalPrice = dailyPrice * quantity;
     }
 
+    let subtotal = finalPrice;
+    let discountAmount = 0;
+    let appliedPromo = null;
+
+    if (promoCode) {
+        const Promotion = require('../models/promotion');
+        const userId = req.user ? req.user._id : null;
+        const promoResult = await Promotion.findValidByCode(promoCode, userId, subtotal, refs.store._id);
+        
+        if (promoResult.promotion && !promoResult.reason) {
+            appliedPromo = promoResult.promotion;
+            discountAmount = appliedPromo.calculateDiscount(subtotal);
+            finalPrice = subtotal - discountAmount;
+        } else {
+            return next(new AppError(promoResult.reason || 'Invalid coupon code', 400));
+        }
+    }
+
     // ✅ AUTO-ASSIGN DELIVERY BOY
     let assignedTo = null;
     try {
@@ -400,16 +418,19 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
             street: `${customAddress}, ${area}`,
             city: 'Jaipur',
             pincode: '303002',
-            label: 'Home'
+            label: 'Home',
+            locationLink: locationLink || ''
         },
         items: [{
             menuItemId: selectedMenuItem._id,
             itemName: selectedMenuItem.name,
             quantity: quantity,
-            itemPrice: finalPrice / quantity, // Approximate per unit if multiple plates
+            itemPrice: subtotal / quantity, // Approximate per unit if multiple plates
         }],
-        totalAmount: finalPrice,
+        totalAmount: subtotal,
         finalPrice: finalPrice, // Schema requires this
+        discount: discountAmount,
+        promoCode: appliedPromo ? appliedPromo.code : undefined,
         paymentMethod: 'cash_on_delivery',
         status: 'Pending',
         assignedTo, // ✅ Auto-assign delivery boy
@@ -428,6 +449,11 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
     if (slot === 'Dinner') menu.stats.dinnerOrders += quantity;
     menu.stats.revenue += finalPrice;
     await menu.save();
+
+    if (appliedPromo) {
+        const userId = req.user ? req.user._id : null;
+        await appliedPromo.apply(userId, order._id, subtotal, discountAmount);
+    }
 
     // Send Notification Email
     try {
@@ -458,7 +484,7 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
             orderId: order._id,
             mealType: slot,
             plates: quantity,
-            deliveryTime: slot === 'Lunch' ? '1:00–2:00 PM' : '7:30–9:00 PM',
+            deliveryTime: slot === 'Lunch' ? '12:30–2:00 PM' : '8:00–9:00 PM',
             paymentMode: 'COD (Cash on Delivery)',
             totalAmount: finalPrice
         }
@@ -469,39 +495,56 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
 exports.getDashboardStats = catchAsync(async (req, res, next) => {
     const todayStr = getTodayDateString();
 
-    // Find or create today's menu to ensure stats exist
-    let menu = await DailyMenu.findOne({ date: todayStr });
-
-    if (!menu) {
-        return res.status(200).json({ success: true, data: { lunch: 0, dinner: 0, revenue: 0, customers: [] } });
-    }
-
-    // Fetch actual orders for detailed list
+    // Fetch actual orders for detailed list:
+    // We want orders that were placed today OR are still in an active/pending state from previous days.
     const orders = await Order.find({
-        'metadata.dailyMenuDate': todayStr,
-        'metadata.isHomemade': true
-    })
-        .sort({ createdAt: -1 });
+        'metadata.isHomemade': true,
+        $or: [
+            { 'metadata.dailyMenuDate': todayStr },
+            { status: { $in: ['Pending', 'Confirmed', 'OutForDelivery', 'preparing', 'ready', 'pending', 'confirmed', 'out_for_delivery'] } }
+        ]
+    }).sort({ createdAt: -1 });
 
     const customerList = orders.map(o => ({
         id: o._id,
-        name: o.metadata.customerName || "Unknown",
-        phone: o.metadata.customerPhone || "Unknown",
-        area: o.deliveryAddress.street || "Unknown",
+        name: o.metadata?.customerName || o.userId?.name || "Unknown",
+        phone: o.metadata?.customerPhone || o.userId?.phone || "Unknown",
+        area: o.deliveryAddress?.street || "Unknown",
         plates: o.items.reduce((acc, i) => acc + i.quantity, 0),
-        mealType: o.metadata.mealType || "Unknown",
-        amount: o.finalPrice,
+        mealType: o.metadata?.mealType || "Unknown",
+        amount: o.finalPrice || 0,
         status: o.status,
-        isSubscription: o.metadata.isSubscription || false
+        isSubscription: o.metadata?.isSubscription || false,
+        createdAt: o.createdAt
     }));
+
+    // Calculate real stats for TODAY's orders only
+    const todaysOrders = orders.filter(o => o.metadata?.dailyMenuDate === todayStr);
+    
+    let lunchCount = 0;
+    let dinnerCount = 0;
+    let totalRevenue = 0;
+
+    todaysOrders.forEach(o => {
+        // Exclude cancelled/rejected from revenue
+        if (o.status !== 'Cancelled' && o.status !== 'Rejected' && o.status !== 'cancelled' && o.status !== 'rejected') {
+            totalRevenue += (o.finalPrice || 0);
+            const plates = o.items.reduce((acc, i) => acc + i.quantity, 0);
+            if (o.metadata?.mealType?.toLowerCase() === 'lunch') {
+                lunchCount += plates;
+            } else if (o.metadata?.mealType?.toLowerCase() === 'dinner') {
+                dinnerCount += plates;
+            }
+        }
+    });
 
     res.status(200).json({
         success: true,
         data: {
             stats: {
-                lunchCount: menu.stats.lunchOrders, // These might be inflated with potential fakes if synced directly, but OK for now
-                dinnerCount: menu.stats.dinnerOrders,
-                totalRevenue: menu.stats.revenue
+                lunchCount: lunchCount,
+                dinnerCount: dinnerCount,
+                totalRevenue: totalRevenue
             },
             customers: customerList
         }

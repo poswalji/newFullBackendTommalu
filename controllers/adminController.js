@@ -507,7 +507,7 @@ exports.updateStoreDeliveryFee = asyncHandler(async (req, res, next) => {
 // GET /api/admin/analytics/dashboard
 exports.getDashboardAnalytics = asyncHandler(async (req, res, next) => {
   const { startDate, endDate } = req.query;
-  const filter = {};
+  const filter = { 'metadata.isHomemade': true };
   
   if (startDate || endDate) {
     filter.createdAt = {};
@@ -518,34 +518,38 @@ exports.getDashboardAnalytics = asyncHandler(async (req, res, next) => {
   const [
     totalOrders,
     completedOrders,
-    totalRevenue,
-    totalCommission,
-    activeStores,
+    orderStats,
     totalCustomers,
-    totalStoreOwners,
     recentOrders
   ] = await Promise.all([
     Order.countDocuments(filter),
     Order.countDocuments({ ...filter, status: 'Delivered' }),
-    Payment.aggregate([
-      { $match: { ...filter, status: 'completed' } },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
+    Order.aggregate([
+      { $match: filter },
+      { 
+        $group: { 
+          _id: null, 
+          totalRevenue: { 
+            $sum: { $cond: [{ $in: ['$status', ['Cancelled', 'Rejected', 'cancelled', 'rejected']] }, 0, '$finalPrice'] } 
+          },
+          lunchCount: {
+            $sum: { $cond: [{ $regexMatch: { input: '$metadata.mealType', regex: /lunch/i } }, { $sum: '$items.quantity' }, 0] }
+          },
+          dinnerCount: {
+            $sum: { $cond: [{ $regexMatch: { input: '$metadata.mealType', regex: /dinner/i } }, { $sum: '$items.quantity' }, 0] }
+          }
+        } 
+      }
     ]),
-    Payment.aggregate([
-      { $match: { ...filter, status: 'completed' } },
-      { $group: { _id: null, total: { $sum: '$commissionAmount' } } }
-    ]),
-    Store.countDocuments({ status: 'active', available: true }),
     User.countDocuments({ role: 'customer', status: 'active' }),
-    User.countDocuments({ role: 'storeOwner', status: 'active' }),
-    Order.find(filter).sort({ createdAt: -1 }).limit(10)
-      .populate('userId', 'name email')
-      .populate('storeId', 'storeName')
+    Order.find(filter).sort({ createdAt: -1 }).limit(10).populate('userId', 'name email')
   ]);
+  
+  const stats = orderStats[0] || { totalRevenue: 0, lunchCount: 0, dinnerCount: 0 };
   
   // Calculate average order value
   const avgOrderValue = completedOrders > 0 
-    ? (totalRevenue[0]?.total || 0) / completedOrders 
+    ? stats.totalRevenue / completedOrders 
     : 0;
   
   res.json({
@@ -555,25 +559,27 @@ exports.getDashboardAnalytics = asyncHandler(async (req, res, next) => {
         total: totalOrders,
         completed: completedOrders,
         pending: totalOrders - completedOrders,
-        averageOrderValue: Math.round(avgOrderValue * 100) / 100
+        averageOrderValue: Math.round(avgOrderValue * 100) / 100,
+        lunchCount: stats.lunchCount,
+        dinnerCount: stats.dinnerCount
       },
       revenue: {
-        total: totalRevenue[0]?.total || 0,
-        commission: totalCommission[0]?.total || 0,
-        netRevenue: (totalRevenue[0]?.total || 0) - (totalCommission[0]?.total || 0)
+        total: stats.totalRevenue,
+        commission: 0,
+        netRevenue: stats.totalRevenue
       },
       users: {
         customers: totalCustomers,
-        storeOwners: totalStoreOwners,
-        total: totalCustomers + totalStoreOwners
+        storeOwners: 0,
+        total: totalCustomers
       },
       stores: {
-        active: activeStores
+        active: 0
       },
       recentOrders: recentOrders.map(order => ({
         id: order._id,
-        customer: order.userId?.name,
-        store: order.storeId?.storeName,
+        customer: order.metadata?.customerName || order.userId?.name || "Unknown",
+        store: "Tommalu Homemade",
         amount: order.finalPrice,
         status: order.status,
         createdAt: order.createdAt
@@ -585,7 +591,7 @@ exports.getDashboardAnalytics = asyncHandler(async (req, res, next) => {
 // GET /api/admin/analytics/orders
 exports.getOrderAnalytics = asyncHandler(async (req, res, next) => {
   const { startDate, endDate, groupBy = 'day' } = req.query;
-  const matchFilter = {};
+  const matchFilter = { 'metadata.isHomemade': true };
   
   if (startDate || endDate) {
     matchFilter.createdAt = {};

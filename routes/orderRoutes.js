@@ -28,7 +28,7 @@ router.use(protect);
  *       201:
  *         description: Order created
  */
-router.post('/', restrictTo('customer'), orderController.createOrder);
+router.post('/', orderController.createOrder);
 /**
  * @openapi
  * /api/orders:
@@ -41,7 +41,7 @@ router.post('/', restrictTo('customer'), orderController.createOrder);
  *       200:
  *         description: List of orders
  */
-router.get('/', restrictTo('customer'), orderController.getCustomerOrders);
+router.get('/', orderController.getCustomerOrders);
 
 // ✅ IMPORTANT: Place specific routes BEFORE parameterized routes
 // This prevents "/admin" from matching "/:id"
@@ -141,6 +141,6 @@ router.put('/:id/status', restrictTo('admin', 'delivery'), orderController.updat
  *       200:
  *         description: Order cancelled
  */
-router.post('/:id/cancel', restrictTo('customer'), orderController.cancelOrder);
+router.post('/:id/cancel', orderController.cancelOrder);
 
 module.exports = router;

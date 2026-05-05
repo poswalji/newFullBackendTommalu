@@ -21,7 +21,7 @@ const customerController = require('../controllers/customerController');
 const orderController = require('../controllers/orderController');
 const { protect, restrictTo } = require('../middleware/authMiddleware'); // ✅ Import middleware
 
-router.use(protect, restrictTo('customer'));
+router.use(protect);
 
 /**
  * @openapi
