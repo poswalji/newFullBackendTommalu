@@ -99,4 +99,7 @@ router.get('/orders', orderController.getCustomerOrders);
  */
 router.post('/orders/from-cart', orderController.createOrderFromCart); // ✅ New route  
 
+// ✅ Clear unseen token rewards after animation is shown
+router.post('/clear-token-rewards', customerController.clearTokenRewards);
+
 module.exports = router;

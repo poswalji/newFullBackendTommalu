@@ -108,6 +108,18 @@ const userSchema = new mongoose.Schema({
     email: { type: Boolean, default: true },
     push: { type: Boolean, default: true },
     sms: { type: Boolean, default: false }
+  },
+
+  // ✅ Token System for Rewards/Loyalty
+  tokens: {
+    type: Number,
+    default: 200 // Initial bonus for all users
+  },
+  
+  // ✅ Unseen tokens rewarded after delivery
+  unseenTokenRewards: {
+    type: Number,
+    default: 0
   }
 
 },

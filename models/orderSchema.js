@@ -77,6 +77,7 @@ const OrderSchema = new mongoose.Schema({
   discount: { type: Number, default: 0 },
   promoCode: { type: String },
   deliveryCharge: { type: Number, default: 0 },
+  tokensUsed: { type: Number, default: 0 },
   finalPrice: { type: Number, required: true },
 
   status: {

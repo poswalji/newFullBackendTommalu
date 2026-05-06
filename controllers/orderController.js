@@ -584,6 +584,14 @@ exports.updateOrderStatus = asyncHandler(async (req, res, next) => {
             updatedOrder.deliveredTime = new Date();
             await updatedOrder.save();
 
+            // ✅ Grant +10 loyalty tokens to customer
+            const customerId = updatedOrder.userId?._id || updatedOrder.userId;
+            if (customerId) {
+                await User.findByIdAndUpdate(customerId, {
+                    $inc: { tokens: 10, unseenTokenRewards: 10 }
+                });
+            }
+
             // Update payment status
             const payment = await Payment.findOne({ orderId: updatedOrder._id });
             if (payment && payment.paymentMethod === 'cash_on_delivery' && payment.status === 'pending') {
@@ -1216,6 +1224,14 @@ exports.updateOrderStatusAdmin = asyncHandler(async (req, res, next) => {
             // Set deliveredTime
             updated.deliveredTime = new Date();
             await updated.save();
+
+            // ✅ Grant +10 loyalty tokens to customer
+            const customerId = updated.userId?._id || updated.userId;
+            if (customerId) {
+                await User.findByIdAndUpdate(customerId, {
+                    $inc: { tokens: 10, unseenTokenRewards: 10 }
+                });
+            }
 
             // Update payment status
             const payment = await Payment.findOne({ orderId: updated._id });

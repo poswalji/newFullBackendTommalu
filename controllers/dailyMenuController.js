@@ -4,6 +4,7 @@ const Order = require('../models/orderSchema');
 const AppError = require('../utils/appError');
 const catchAsync = require('../utils/asyncHandler');
 const emailService = require('../utils/emailService');
+const User = require('../models/user');
 
 // Helper to get current Indian time
 const getIndianTime = () => {
@@ -398,6 +399,62 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
         }
     }
 
+    // ✅ TOKEN SYSTEM LOGIC
+    let tokensUsed = 0;
+    const { useTokens } = req.body;
+    let userDoc = null;
+
+    if (req.user) {
+        userDoc = await User.findById(req.user._id);
+        if (userDoc) {
+            // ✅ If tokens field is not yet initialized, give the one-time 200 bonus and save it
+            if (userDoc.tokens === null || userDoc.tokens === undefined) {
+                userDoc.tokens = 200;
+                await userDoc.save({ validateBeforeSave: false }); // Save the initial grant immediately
+            }
+
+            let availableTokens = userDoc.tokens; // Always use the real DB value
+
+            if (useTokens && availableTokens > 0) {
+                // Calculate max tokens we can use (10 tokens = ₹1)
+                // Cannot exceed finalPrice * 10
+                const maxTokensForOrder = Math.floor(finalPrice * 10);
+                tokensUsed = Math.min(availableTokens, maxTokensForOrder);
+                
+                const tokenDiscount = tokensUsed / 10;
+                finalPrice -= tokenDiscount;
+                discountAmount += tokenDiscount; // Add to total discount
+                
+                userDoc.tokens = availableTokens - tokensUsed;
+            }
+            // No else needed — if not using tokens, we leave userDoc.tokens as-is
+            
+            // ✅ AUTO-SAVE ADDRESS LOGIC
+            if (customAddress) {
+                const safeArea = area || '';
+                const fullStreetAddress = `${customAddress}${safeArea ? ', ' + safeArea : ''}`;
+                if (!userDoc.addresses) {
+                    userDoc.addresses = [];
+                }
+                
+                const addressExists = userDoc.addresses.some(
+                    addr => addr.street && addr.street.toLowerCase() === fullStreetAddress.toLowerCase()
+                );
+                
+                if (!addressExists) {
+                    userDoc.addresses.push({
+                        street: fullStreetAddress,
+                        city: 'Jaipur',
+                        pincode: '303002',
+                        label: 'Home'
+                    });
+                }
+            }
+
+            await userDoc.save({ validateBeforeSave: false });
+        }
+    }
+
     // ✅ AUTO-ASSIGN DELIVERY BOY
     let assignedTo = null;
     try {
@@ -430,6 +487,7 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
         totalAmount: subtotal,
         finalPrice: finalPrice, // Schema requires this
         discount: discountAmount,
+        tokensUsed: tokensUsed,
         promoCode: appliedPromo ? appliedPromo.code : undefined,
         paymentMethod: 'cash_on_delivery',
         status: 'Pending',

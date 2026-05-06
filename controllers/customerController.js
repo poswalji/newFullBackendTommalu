@@ -25,6 +25,8 @@ exports.getCustomer = asyncHandler(async (req, res, next) => {
             email: user.email,
             phone: user.phone,
             addresses: user.addresses || [],
+            tokens: user.tokens ?? 0, // Use actual DB value — 200 is set once at registration via schema default
+            unseenTokenRewards: user.unseenTokenRewards ?? 0,
             role: user.role
         }
     }); 
@@ -67,6 +69,8 @@ exports.updateCustomer = asyncHandler(async (req, res, next) => {
             email: updatedUser.email,
             phone: updatedUser.phone,
             addresses: updatedUser.addresses || [],
+            tokens: updatedUser.tokens ?? 0,
+            unseenTokenRewards: updatedUser.unseenTokenRewards ?? 0,
             role: updatedUser.role
         }
     }); 
@@ -127,4 +131,11 @@ exports.updateCustomerById = asyncHandler(async (req, res, next) => {
             addresses: updatedUser.addresses || []
         }
     }); 
+});
+
+// ✅ Clear unseen token rewards (called after animation is shown)
+exports.clearTokenRewards = asyncHandler(async (req, res, next) => {
+    const userId = req.user.id;
+    await User.findByIdAndUpdate(userId, { unseenTokenRewards: 0 });
+    res.status(200).json({ success: true, message: 'Token rewards cleared' });
 });
