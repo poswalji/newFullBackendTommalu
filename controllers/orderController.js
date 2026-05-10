@@ -1311,12 +1311,10 @@ exports.getDeliveryOrders = asyncHandler(async (req, res, next) => {
     // Only show orders assigned to the logged-in delivery boy
     const deliveryBoyId = req.deliveryBoy.id;
     console.log('Fetching orders for deliveryBoyId:', deliveryBoyId);
-    // Since the user requested all orders to go to their single delivery boy, 
-    // we fetch ALL orders from the last 24 hours.
+    
     const query = { 
         createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
     };    
-    // Check for optional status filter from query params
     if (req.query.status) {
         query.status = req.query.status;
     }
@@ -1330,22 +1328,26 @@ exports.getDeliveryOrders = asyncHandler(async (req, res, next) => {
 
     // Format orders
     const formattedOrders = orders.map(order => {
-        // Handle Homemade Food (Thali) metadata fallback
         const isHomemade = order.metadata?.isHomemade === true;
+        const isManual = order.source === 'whatsapp_manual';
         
         return {
             id: order._id,
-            customerName: isHomemade ? order.metadata?.customerName : order.userId?.name,
-            phone: isHomemade ? order.metadata?.customerPhone : order.userId?.phone,
+            customerName: isManual ? order.metadata?.customerName : (isHomemade ? order.metadata?.customerName : order.userId?.name),
+            phone: isManual ? order.metadata?.customerPhone : (isHomemade ? order.metadata?.customerPhone : order.userId?.phone),
             address: order.deliveryAddress,
             items: order.items,
-            timeSlot: isHomemade ? order.metadata?.mealType : order.timeSlot,
+            timeSlot: isManual ? order.timeSlot : (isHomemade ? order.metadata?.mealType : order.timeSlot),
             paymentMethod: order.paymentMethod,
             status: order.status,
             assignedTo: order.assignedTo,
-            area: order.area || 'Home Delivery', // Provide fallback for grouping
+            area: order.area || 'Home Delivery',
             createdAt: order.createdAt,
-            specialInstructions: isHomemade ? order.metadata?.orderedItems : ''
+            specialInstructions: isHomemade ? order.metadata?.orderedItems : '',
+            source: order.source || 'website',
+            isSubscription: order.isSubscription || false,
+            collectionAmount: order.isSubscription ? 0 : order.finalPrice,
+            finalPrice: order.finalPrice
         };
     });
 
@@ -1359,6 +1361,18 @@ exports.getDeliveryOrders = asyncHandler(async (req, res, next) => {
         return acc;
     }, {});
 
+    // ✅ Sort within each area group (nearby first - using pincode/street as proxy)
+    Object.keys(groupedOrders).forEach(area => {
+        groupedOrders[area].sort((a, b) => {
+            const pincodeA = a.address?.pincode || '';
+            const pincodeB = b.address?.pincode || '';
+            if (pincodeA !== pincodeB) {
+                return pincodeA.localeCompare(pincodeB);
+            }
+            return (a.address?.street || '').localeCompare(b.address?.street || '');
+        });
+    });
+
     res.status(200).json({
         success: true,
         data: groupedOrders,
@@ -1370,15 +1384,12 @@ exports.updateDeliveryOrderStatus = asyncHandler(async (req, res, next) => {
     const deliveryBoyId = req.deliveryBoy.id;
     const orderId = req.params.orderId;
 
-    // Check if order exists and is assigned to this delivery boy
     const order = await Order.findOne({ _id: orderId, assignedTo: deliveryBoyId });
     if (!order) {
         return next(new AppError('Order not found or not assigned to you', 404));
     }
 
     const { status } = req.body;
-    // Delivery boy can typically only mark as "Delivered" or "OutForDelivery" 
-    // but we'll accept what's requested. Let's assume they're marking as Delivered.
     if (!status) {
         return next(new AppError('Status is required', 400));
     }
@@ -1388,7 +1399,6 @@ exports.updateDeliveryOrderStatus = asyncHandler(async (req, res, next) => {
     if (status === 'Delivered') {
         order.deliveredTime = new Date();
         
-        // Update payment status if it was COD
         try {
             const payment = await Payment.findOne({ orderId: order._id });
             if (payment && payment.paymentMethod === 'cash_on_delivery' && payment.status === 'pending') {
@@ -1410,5 +1420,71 @@ exports.updateDeliveryOrderStatus = asyncHandler(async (req, res, next) => {
             id: order._id,
             status: order.status
         }
+    });
+});
+
+// ✅ ADMIN: Add manual WhatsApp order
+exports.addManualWhatsAppOrder = asyncHandler(async (req, res, next) => {
+    const { 
+        customerName, 
+        phone, 
+        street, 
+        city, 
+        pincode, 
+        area, 
+        items, 
+        finalPrice, 
+        timeSlot, 
+        isSubscription 
+    } = req.body;
+
+    // Validation: finalPrice can be 0 if it's a subscription, but otherwise should be present
+    if (!customerName || !phone || !street || !city || !pincode || 
+        (finalPrice === undefined || finalPrice === null || (finalPrice === 0 && !isSubscription && isSubscription !== 'true'))) {
+        return next(new AppError('Missing required fields for manual order. Please provide all details and price.', 400));
+    }
+
+    const store = await Store.findOne({ category: 'Homemade Food' }) || await Store.findOne();
+    if (!store) {
+        return next(new AppError('No store found to assign the order', 404));
+    }
+
+    let assignedTo = null;
+    try {
+        const DeliveryBoy = require('../models/deliveryBoy');
+        const activeBoy = await DeliveryBoy.findOne({ isActive: true });
+        if (activeBoy) {
+            assignedTo = activeBoy._id;
+        }
+    } catch (err) {
+        console.error("Error auto-assigning delivery boy:", err);
+    }
+
+    const newOrder = await Order.create({
+        storeId: store._id,
+        deliveryAddress: {
+            street,
+            city,
+            pincode,
+            label: 'Other'
+        },
+        items: Array.isArray(items) ? items : [{ itemName: items, quantity: 1, itemPrice: finalPrice }],
+        finalPrice: isSubscription ? 0 : finalPrice,
+        status: 'Confirmed',
+        area: area || 'other',
+        assignedTo,
+        timeSlot: timeSlot || null,
+        source: 'whatsapp_manual',
+        isSubscription: isSubscription === true || isSubscription === 'true',
+        metadata: {
+            customerName,
+            customerPhone: phone,
+            manualOrder: true
+        }
+    });
+
+    res.status(201).json({
+        success: true,
+        data: newOrder
     });
 });

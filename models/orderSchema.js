@@ -50,7 +50,7 @@ const Store = require("./store"); // import Store model
 // module.exports = mongoose.model("Order", OrderSchema);
 
 const OrderSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: false },
   storeId: { type: mongoose.Schema.Types.ObjectId, ref: "Store", required: true },
   orderTime: { type: Date, default: Date.now },
   deliveredTime: { type: Date },
@@ -148,9 +148,19 @@ const OrderSchema = new mongoose.Schema({
     type: String,
     enum: ['nims', 'achrol', 'chomu', 'other'],
     default: 'other'
+  },
+  // ✅ Source tracking for WhatsApp orders
+  source: {
+    type: String,
+    enum: ['website', 'whatsapp_manual'],
+    default: 'website'
+  },
+  // ✅ Subscription flag
+  isSubscription: {
+    type: Boolean,
+    default: false
   }
-},
-  { timestamps: true });
+}, { timestamps: true });
 
 // ✅ Index for fast delivery boy assignment queries
 OrderSchema.index({ area: 1, assignedTo: 1 });

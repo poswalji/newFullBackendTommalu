@@ -309,7 +309,7 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
     const menu = await DailyMenu.findOne({ date: todayStr });
 
     if (!menu) return next(new AppError('Menu not open for today', 400));
-    
+
     if (menu.isServiceOff) {
         return next(new AppError('Hum abhi next batch prepare kar rahe hain. Best quality maintain karne ke liye thoda break lete hain 🙏', 400));
     }
@@ -389,7 +389,7 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
         const Promotion = require('../models/promotion');
         const userId = req.user ? req.user._id : null;
         const promoResult = await Promotion.findValidByCode(promoCode, userId, subtotal, refs.store._id);
-        
+
         if (promoResult.promotion && !promoResult.reason) {
             appliedPromo = promoResult.promotion;
             discountAmount = appliedPromo.calculateDiscount(subtotal);
@@ -420,15 +420,15 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
                 // Cannot exceed finalPrice * 10
                 const maxTokensForOrder = Math.floor(finalPrice * 10);
                 tokensUsed = Math.min(availableTokens, maxTokensForOrder);
-                
+
                 const tokenDiscount = tokensUsed / 10;
                 finalPrice -= tokenDiscount;
                 discountAmount += tokenDiscount; // Add to total discount
-                
+
                 userDoc.tokens = availableTokens - tokensUsed;
             }
             // No else needed — if not using tokens, we leave userDoc.tokens as-is
-            
+
             // ✅ AUTO-SAVE ADDRESS LOGIC
             if (customAddress) {
                 const safeArea = area || '';
@@ -436,11 +436,11 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
                 if (!userDoc.addresses) {
                     userDoc.addresses = [];
                 }
-                
+
                 const addressExists = userDoc.addresses.some(
                     addr => addr.street && addr.street.toLowerCase() === fullStreetAddress.toLowerCase()
                 );
-                
+
                 if (!addressExists) {
                     userDoc.addresses.push({
                         street: fullStreetAddress,
@@ -578,7 +578,7 @@ exports.getDashboardStats = catchAsync(async (req, res, next) => {
 
     // Calculate real stats for TODAY's orders only
     const todaysOrders = orders.filter(o => o.metadata?.dailyMenuDate === todayStr);
-    
+
     let lunchCount = 0;
     let dinnerCount = 0;
     let totalRevenue = 0;
@@ -915,6 +915,20 @@ exports.updateOrderStatus = catchAsync(async (req, res, next) => {
     }
 
     await order.save();
+
+    // ✅ Special handling: When order is Delivered, grant +10 loyalty tokens to customer
+    if (status === 'Delivered' || status === 'delivered') {
+        try {
+            const customerId = source === 'new' ? order.userId : (order.userId || order.customerId); // Depending on legacy/new schema
+            if (customerId) {
+                await User.findByIdAndUpdate(customerId, {
+                    $inc: { tokens: 10, unseenTokenRewards: 10 }
+                });
+            }
+        } catch (err) {
+            console.error('Error granting tokens on delivery:', err);
+        }
+    }
 
     // Return formatted
     const formattedOrder = {

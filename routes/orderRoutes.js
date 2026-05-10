@@ -64,6 +64,7 @@ router.get('/', orderController.getCustomerOrders);
  *         description: Orders
  */
 router.get('/admin', restrictTo('admin'), orderController.getAllOrders);
+router.post('/manual-add', restrictTo('admin'), orderController.addManualWhatsAppOrder);
 
 /**
  * @openapi

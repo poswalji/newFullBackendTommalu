@@ -69,7 +69,9 @@ exports.registerUser = asyncHandler(async (req, res, next) => {
             name: user.name,
             email: user.email,
             role: user.role,
-            emailVerified: user.emailVerified
+            emailVerified: user.emailVerified,
+            tokens: user.tokens,
+            unseenTokenRewards: user.unseenTokenRewards
         }
     });
 });
@@ -152,7 +154,9 @@ exports.loginUser = asyncHandler(async (req, res, next) => {
             email: user.email,
             role: user.role,
             phone: user.phone,
-            addresses: user.addresses || []
+            addresses: user.addresses || [],
+            tokens: user.tokens,
+            unseenTokenRewards: user.unseenTokenRewards
         }
     });
 });
@@ -289,7 +293,9 @@ exports.googleAuth = asyncHandler(async (req, res, next) => {
                 role: user.role,
                 phone: user.phone || '',
                 addresses: user.addresses || [],
-                avatar: user.avatar
+                avatar: user.avatar,
+                tokens: user.tokens,
+                unseenTokenRewards: user.unseenTokenRewards
             }
         });
 
@@ -314,7 +320,9 @@ exports.getMe = asyncHandler(async (req, res, next) => {
             phone: user.phone,
             addresses: user.addresses || [],
             status: user.status,
-            adminRole: user.adminRole
+            adminRole: user.adminRole,
+            tokens: user.tokens,
+            unseenTokenRewards: user.unseenTokenRewards
         }
     });
 });
@@ -337,7 +345,9 @@ exports.updateProfile = asyncHandler(async (req, res, next) => {
             email: user.email,
             role: user.role,
             phone: user.phone,
-            addresses: user.addresses || []
+            addresses: user.addresses || [],
+            tokens: user.tokens,
+            unseenTokenRewards: user.unseenTokenRewards
         }
     });
 });
@@ -460,7 +470,9 @@ exports.verifyEmail = asyncHandler(async (req, res, next) => {
             role: user.role,
             phone: user.phone,
             emailVerified: user.emailVerified,
-            addresses: user.addresses || []
+            addresses: user.addresses || [],
+            tokens: user.tokens,
+            unseenTokenRewards: user.unseenTokenRewards
         }
     });
 });
@@ -679,7 +691,9 @@ exports.resetPassword = asyncHandler(async (req, res, next) => {
             email: user.email,
             role: user.role,
             phone: user.phone,
-            addresses: user.addresses || []
+            addresses: user.addresses || [],
+            tokens: user.tokens,
+            unseenTokenRewards: user.unseenTokenRewards
         }
     });
 });
