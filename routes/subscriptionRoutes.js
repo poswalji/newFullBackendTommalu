@@ -25,6 +25,7 @@ router.get('/', subscriptionController.getAllActiveSubscriptions);
 router.patch('/:id/status', subscriptionController.updateSubscriptionStatus); // Pause/Resume
 router.patch('/:id/period', subscriptionController.updateSubscriptionPeriod); // Extend/Reduce
 router.patch('/:id/price', subscriptionController.updateSubscriptionPrice);   // Update Price
+router.post('/:id/admin-pause', subscriptionController.adminAddPause);        // Manual pause by Admin
 
 // Admin: Manage Pause Requests
 router.post('/:id/pause-request/:requestId/approve', subscriptionController.approvePauseRequest);

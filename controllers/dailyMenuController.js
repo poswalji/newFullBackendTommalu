@@ -290,11 +290,51 @@ exports.updateMenu = catchAsync(async (req, res, next) => {
         }
     }
 
+    const wasServiceOff = menu.isServiceOff;
+
     if (isServiceOff !== undefined) {
         menu.isServiceOff = isServiceOff;
     }
 
     await menu.save();
+
+    // Auto-extend subscriptions if service just turned off
+    if (isServiceOff === true && !wasServiceOff) {
+        try {
+            const Subscription = require('../models/subscriptionSchema');
+            // Find active subscriptions that overlap with this target date
+            const targetDateObj = new Date(targetDate);
+            // set targetDateObj to start of day and end of day to check overlap
+            const activeSubs = await Subscription.find({
+                status: 'active',
+                startDate: { $lte: targetDateObj },
+                endDate: { $gte: targetDateObj }
+            });
+
+            for (const sub of activeSubs) {
+                // Check if a system pause for this date already exists
+                const pauseExists = sub.pauseRequests.find(pr => 
+                    new Date(pr.date).toDateString() === targetDateObj.toDateString() && 
+                    pr.reason === 'Service Off by Admin'
+                );
+                
+                if (!pauseExists) {
+                    sub.pauseRequests.push({
+                        date: targetDateObj,
+                        status: 'approved',
+                        reason: 'Service Off by Admin'
+                    });
+                    
+                    const newEndDate = new Date(sub.endDate);
+                    newEndDate.setDate(newEndDate.getDate() + 1);
+                    sub.endDate = newEndDate;
+                    await sub.save();
+                }
+            }
+        } catch (err) {
+            console.error("Error auto-extending subscriptions for Service Off:", err);
+        }
+    }
 
     res.status(200).json({
         success: true,
@@ -319,6 +359,10 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
     // Basic Validation
     if (!customerName || !mobileNumber || !area || !quantity || !slot) {
         return next(new AppError('All fields are required', 400));
+    }
+
+    if (promoCode && req.body.useTokens) {
+        return next(new AppError('You cannot use both a coupon and tokens at the same time.', 400));
     }
 
     if (!customAddress) {

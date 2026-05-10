@@ -283,6 +283,42 @@ exports.updateSubscriptionStatus = catchAsync(async (req, res, next) => {
     });
 });
 
+// Admin Add Pause
+exports.adminAddPause = catchAsync(async (req, res, next) => {
+    const { id } = req.params;
+    const { date, reason } = req.body;
+
+    if (!date) return next(new AppError('Date is required', 400));
+
+    const subscription = await Subscription.findById(id);
+    if (!subscription) return next(new AppError('Subscription not found', 404));
+
+    if (subscription.status !== 'active') {
+        return next(new AppError('Only active subscriptions can be paused', 400));
+    }
+
+    // Add pause request as approved
+    subscription.pauseRequests.push({
+        date: new Date(date),
+        status: 'approved',
+        reason: reason || 'Admin Manual Pause'
+    });
+    subscription.pausedDaysUsed += 1;
+
+    // Extend end date by 1 day
+    const newEndDate = new Date(subscription.endDate);
+    newEndDate.setDate(newEndDate.getDate() + 1);
+    subscription.endDate = newEndDate;
+
+    await subscription.save();
+
+    res.status(200).json({
+        success: true,
+        message: 'Pause added successfully and plan extended by 1 day',
+        data: subscription
+    });
+});
+
 // ==========================================
 // 4. User: View Own
 // ==========================================
