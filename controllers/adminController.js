@@ -1,5 +1,8 @@
 const User = require('../models/user');
 const Order = require('../models/orderSchema');
+const { HomemadeFoodOrder } = require('../models/homemadeFood');
+const Subscription = require('../models/subscriptionSchema');
+const Expense = require('../models/expenseSchema');
 const Store = require('../models/store');
 const MenuItem = require('../models/menuItems');
 const Payment = require('../models/payment');
@@ -507,30 +510,50 @@ exports.updateStoreDeliveryFee = asyncHandler(async (req, res, next) => {
 // GET /api/admin/analytics/dashboard
 exports.getDashboardAnalytics = asyncHandler(async (req, res, next) => {
   const { startDate, endDate } = req.query;
-  const filter = { 'metadata.isHomemade': true };
   
+  // Base filters for createdAt
+  const dateFilter = {};
   if (startDate || endDate) {
-    filter.createdAt = {};
-    if (startDate) filter.createdAt.$gte = new Date(startDate);
-    if (endDate) filter.createdAt.$lte = new Date(endDate);
+    dateFilter.createdAt = {};
+    if (startDate) dateFilter.createdAt.$gte = new Date(startDate);
+    if (endDate) dateFilter.createdAt.$lte = new Date(endDate);
   }
-  
+
+  const orderFilter = { 'metadata.isHomemade': true, ...dateFilter };
+  const legacyOrderFilter = { ...dateFilter };
+  const subFilter = { ...dateFilter };
+  const expenseFilter = {};
+  if (startDate || endDate) {
+    expenseFilter.expenseDate = {};
+    if (startDate) expenseFilter.expenseDate.$gte = new Date(startDate);
+    if (endDate) expenseFilter.expenseDate.$lte = new Date(endDate);
+  }
+
   const [
-    totalOrders,
-    completedOrders,
-    orderStats,
+    newOrderStatsArr,
+    legacyOrderStatsArr,
+    totalExpensesArr,
+    activeSubscriptions,
+    upcomingRenewals,
     totalCustomers,
-    recentOrders
+    recentOrders,
+    recentLegacyOrders
   ] = await Promise.all([
-    Order.countDocuments(filter),
-    Order.countDocuments({ ...filter, status: 'Delivered' }),
     Order.aggregate([
-      { $match: filter },
+      { $match: orderFilter },
       { 
         $group: { 
           _id: null, 
+          totalOrders: { $sum: 1 },
+          completedOrders: { $sum: { $cond: [{ $eq: ['$status', 'Delivered'] }, 1, 0] } },
           totalRevenue: { 
             $sum: { $cond: [{ $in: ['$status', ['Cancelled', 'Rejected', 'cancelled', 'rejected']] }, 0, '$finalPrice'] } 
+          },
+          collectedPayments: {
+            $sum: { $cond: [{ $eq: ['$paymentStatus', 'received'] }, '$finalPrice', 0] }
+          },
+          pendingPayments: {
+            $sum: { $cond: [{ $and: [{ $eq: ['$paymentStatus', 'pending'] }, { $not: { $in: ['$status', ['Cancelled', 'Rejected', 'cancelled', 'rejected']] } }] }, '$finalPrice', 0] }
           },
           lunchCount: {
             $sum: { $cond: [{ $regexMatch: { input: '$metadata.mealType', regex: /lunch/i } }, { $sum: '$items.quantity' }, 0] }
@@ -541,49 +564,124 @@ exports.getDashboardAnalytics = asyncHandler(async (req, res, next) => {
         } 
       }
     ]),
+    
+    HomemadeFoodOrder.aggregate([
+      { $match: legacyOrderFilter },
+      { 
+        $group: { 
+          _id: null, 
+          totalOrders: { $sum: 1 },
+          completedOrders: { $sum: { $cond: [{ $in: ['$status', ['delivered', 'Delivered']] }, 1, 0] } },
+          totalRevenue: { 
+            $sum: { $cond: [{ $in: ['$status', ['cancelled', 'refunded', 'Cancelled']] }, 0, '$finalAmount'] } 
+          },
+          collectedPayments: {
+            $sum: { $cond: [{ $eq: ['$paymentStatus', 'received'] }, '$finalAmount', 0] }
+          },
+          pendingPayments: {
+            $sum: { $cond: [{ $and: [{ $eq: ['$paymentStatus', 'pending'] }, { $not: { $in: ['$status', ['cancelled', 'refunded', 'Cancelled']] } }] }, '$finalAmount', 0] }
+          },
+          lunchCount: {
+            $sum: { $cond: [{ $in: ['$preferredDeliverySlot', ['afternoon', 'any', 'Lunch']] }, '$quantity', 0] }
+          },
+          dinnerCount: {
+            $sum: { $cond: [{ $in: ['$preferredDeliverySlot', ['evening', 'Dinner']] }, '$quantity', 0] }
+          }
+        } 
+      }
+    ]),
+
+    Expense.aggregate([
+      { $match: expenseFilter },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]),
+
+    Subscription.countDocuments({ status: 'active', ...dateFilter }),
+    
+    Subscription.countDocuments({ 
+        status: 'active', 
+        endDate: { 
+            $gte: new Date(), 
+            $lte: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) 
+        } 
+    }),
+
     User.countDocuments({ role: 'customer', status: 'active' }),
-    Order.find(filter).sort({ createdAt: -1 }).limit(10).populate('userId', 'name email')
+    
+    Order.find(orderFilter).sort({ createdAt: -1 }).limit(10).populate('userId', 'name email'),
+    HomemadeFoodOrder.find(legacyOrderFilter).sort({ createdAt: -1 }).limit(10).populate('userId', 'name email')
   ]);
   
-  const stats = orderStats[0] || { totalRevenue: 0, lunchCount: 0, dinnerCount: 0 };
+  const newStats = newOrderStatsArr[0] || { totalOrders: 0, completedOrders: 0, totalRevenue: 0, collectedPayments: 0, pendingPayments: 0, lunchCount: 0, dinnerCount: 0 };
+  const legStats = legacyOrderStatsArr[0] || { totalOrders: 0, completedOrders: 0, totalRevenue: 0, collectedPayments: 0, pendingPayments: 0, lunchCount: 0, dinnerCount: 0 };
   
-  // Calculate average order value
-  const avgOrderValue = completedOrders > 0 
-    ? stats.totalRevenue / completedOrders 
-    : 0;
+  const totalOrders = newStats.totalOrders + legStats.totalOrders;
+  const completedOrders = newStats.completedOrders + legStats.completedOrders;
+  const pendingOrders = totalOrders - completedOrders;
+  const totalRevenue = newStats.totalRevenue + legStats.totalRevenue;
+  const collectedPayments = newStats.collectedPayments + legStats.collectedPayments;
+  const pendingPayments = newStats.pendingPayments + legStats.pendingPayments;
+  const lunchCount = newStats.lunchCount + legStats.lunchCount;
+  const dinnerCount = newStats.dinnerCount + legStats.dinnerCount;
   
+  const totalExpenses = totalExpensesArr[0]?.total || 0;
+  const netProfit = totalRevenue - totalExpenses;
+
+  const avgOrderValue = completedOrders > 0 ? totalRevenue / completedOrders : 0;
+  
+  const mergedRecent = [
+      ...recentOrders.map(order => ({
+        id: order._id,
+        customer: order.metadata?.customerName || order.userId?.name || "Unknown",
+        store: "Tommalu Homemade",
+        amount: order.finalPrice,
+        status: order.status,
+        createdAt: order.createdAt,
+        type: 'new'
+      })),
+      ...recentLegacyOrders.map(order => ({
+        id: order._id,
+        customer: order.customerName || order.userId?.name || "Unknown",
+        store: "Tommalu Legacy",
+        amount: order.finalAmount,
+        status: order.status,
+        createdAt: order.createdAt,
+        type: 'legacy'
+      }))
+  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 10);
+
   res.json({
     success: true,
     data: {
       orders: {
         total: totalOrders,
         completed: completedOrders,
-        pending: totalOrders - completedOrders,
+        pending: pendingOrders,
         averageOrderValue: Math.round(avgOrderValue * 100) / 100,
-        lunchCount: stats.lunchCount,
-        dinnerCount: stats.dinnerCount
+        lunchCount: lunchCount,
+        dinnerCount: dinnerCount
       },
       revenue: {
-        total: stats.totalRevenue,
-        commission: 0,
-        netRevenue: stats.totalRevenue
+        total: totalRevenue,
+        collected: collectedPayments,
+        pending: pendingPayments,
+        netRevenue: totalRevenue
+      },
+      expenses: {
+        total: totalExpenses
+      },
+      profit: {
+        netProfit: netProfit
+      },
+      subscriptions: {
+        active: activeSubscriptions,
+        upcomingRenewals: upcomingRenewals
       },
       users: {
         customers: totalCustomers,
-        storeOwners: 0,
         total: totalCustomers
       },
-      stores: {
-        active: 0
-      },
-      recentOrders: recentOrders.map(order => ({
-        id: order._id,
-        customer: order.metadata?.customerName || order.userId?.name || "Unknown",
-        store: "Tommalu Homemade",
-        amount: order.finalPrice,
-        status: order.status,
-        createdAt: order.createdAt
-      }))
+      recentOrders: mergedRecent
     }
   });
 });
@@ -591,12 +689,12 @@ exports.getDashboardAnalytics = asyncHandler(async (req, res, next) => {
 // GET /api/admin/analytics/orders
 exports.getOrderAnalytics = asyncHandler(async (req, res, next) => {
   const { startDate, endDate, groupBy = 'day' } = req.query;
-  const matchFilter = { 'metadata.isHomemade': true };
   
+  const dateFilter = {};
   if (startDate || endDate) {
-    matchFilter.createdAt = {};
-    if (startDate) matchFilter.createdAt.$gte = new Date(startDate);
-    if (endDate) matchFilter.createdAt.$lte = new Date(endDate);
+    dateFilter.createdAt = {};
+    if (startDate) dateFilter.createdAt.$gte = new Date(startDate);
+    if (endDate) dateFilter.createdAt.$lte = new Date(endDate);
   }
   
   let groupFormat = {};
@@ -608,27 +706,94 @@ exports.getOrderAnalytics = asyncHandler(async (req, res, next) => {
     groupFormat = { $dateToString: { format: '%Y-%m', date: '$createdAt' } };
   }
   
-  const analytics = await Order.aggregate([
-    { $match: matchFilter },
-    {
-      $group: {
-        _id: groupFormat,
-        totalOrders: { $sum: 1 },
-        completedOrders: {
-          $sum: { $cond: [{ $eq: ['$status', 'Delivered'] }, 1, 0] }
-        },
-        totalRevenue: { $sum: '$finalPrice' },
-        cancelledOrders: {
-          $sum: { $cond: [{ $eq: ['$status', 'Cancelled'] }, 1, 0] }
+  const [newOrderAnalytics, legacyOrderAnalytics, expenseAnalytics] = await Promise.all([
+    Order.aggregate([
+      { $match: { 'metadata.isHomemade': true, ...dateFilter } },
+      {
+        $group: {
+          _id: groupFormat,
+          totalOrders: { $sum: 1 },
+          completedOrders: { $sum: { $cond: [{ $eq: ['$status', 'Delivered'] }, 1, 0] } },
+          totalRevenue: { $sum: { $cond: [{ $in: ['$status', ['Cancelled', 'Rejected', 'cancelled', 'rejected']] }, 0, '$finalPrice'] } },
+          cancelledOrders: { $sum: { $cond: [{ $in: ['$status', ['Cancelled', 'cancelled']] }, 1, 0] } }
         }
-      }
-    },
-    { $sort: { _id: 1 } }
+      },
+      { $sort: { _id: 1 } }
+    ]),
+    
+    HomemadeFoodOrder.aggregate([
+      { $match: { ...dateFilter } },
+      {
+        $group: {
+          _id: groupFormat,
+          totalOrders: { $sum: 1 },
+          completedOrders: { $sum: { $cond: [{ $in: ['$status', ['delivered', 'Delivered']] }, 1, 0] } },
+          totalRevenue: { $sum: { $cond: [{ $in: ['$status', ['cancelled', 'refunded', 'Cancelled']] }, 0, '$finalAmount'] } },
+          cancelledOrders: { $sum: { $cond: [{ $in: ['$status', ['cancelled', 'Cancelled']] }, 1, 0] } }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]),
+    
+    Expense.aggregate([
+      {
+        $match: (startDate || endDate) ? {
+          expenseDate: {
+            ...(startDate ? { $gte: new Date(startDate) } : {}),
+            ...(endDate ? { $lte: new Date(endDate) } : {})
+          }
+        } : {}
+      },
+      {
+        $group: {
+          _id: groupBy === 'day' ? { $dateToString: { format: '%Y-%m-%d', date: '$expenseDate' } } :
+               groupBy === 'week' ? { $dateToString: { format: '%Y-W%V', date: '$expenseDate' } } :
+               { $dateToString: { format: '%Y-%m', date: '$expenseDate' } },
+          totalExpenses: { $sum: '$amount' }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ])
   ]);
+  
+  const mergedMap = new Map();
+  
+  const mergeToMap = (array, isExpense = false) => {
+      array.forEach(item => {
+          if (!mergedMap.has(item._id)) {
+              mergedMap.set(item._id, {
+                  _id: item._id,
+                  totalOrders: 0,
+                  completedOrders: 0,
+                  totalRevenue: 0,
+                  cancelledOrders: 0,
+                  totalExpenses: 0
+              });
+          }
+          const record = mergedMap.get(item._id);
+          if (isExpense) {
+              record.totalExpenses += item.totalExpenses || item.total || 0;
+          } else {
+              record.totalOrders += item.totalOrders || 0;
+              record.completedOrders += item.completedOrders || 0;
+              record.totalRevenue += item.totalRevenue || 0;
+              record.cancelledOrders += item.cancelledOrders || 0;
+          }
+      });
+  };
+  
+  mergeToMap(newOrderAnalytics);
+  mergeToMap(legacyOrderAnalytics);
+  mergeToMap(expenseAnalytics, true);
+  
+  const mergedArray = Array.from(mergedMap.values()).map(item => ({
+      ...item,
+      netProfit: item.totalRevenue - item.totalExpenses
+  })).sort((a, b) => a._id.localeCompare(b._id));
   
   res.json({
     success: true,
-    data: analytics
+    data: mergedArray
   });
 });
 

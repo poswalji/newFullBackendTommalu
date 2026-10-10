@@ -63,6 +63,16 @@ const subscriptionSchema = new mongoose.Schema({
         type: String,
         default: 'Standard'
     },
+    // Referral System
+    appliedReferralCode: {
+        type: String,
+        uppercase: true,
+        trim: true
+    },
+    referralDiscount: {
+        type: Number,
+        default: 0
+    },
     adminNotes: String,
 
     // Logs for daily deliveries

@@ -697,3 +697,38 @@ exports.resetPassword = asyncHandler(async (req, res, next) => {
         }
     });
 });
+
+// ✅ Save FCM Token
+exports.saveFcmToken = asyncHandler(async (req, res, next) => {
+    const { token } = req.body;
+    
+    if (!token) {
+        return next(new AppError('FCM token is required', 400));
+    }
+
+    const user = await User.findById(req.user._id);
+    
+    if (!user) {
+        return next(new AppError('User not found', 404));
+    }
+
+    // Initialize array if it doesn't exist
+    if (!user.fcmTokens) {
+        user.fcmTokens = [];
+    }
+
+    // Add token if not already present
+    if (!user.fcmTokens.includes(token)) {
+        user.fcmTokens.push(token);
+        // Keep only last 5 tokens to avoid unbounded array growth
+        if (user.fcmTokens.length > 5) {
+            user.fcmTokens = user.fcmTokens.slice(-5);
+        }
+        await user.save({ validateBeforeSave: false });
+    }
+
+    res.status(200).json({
+        success: true,
+        message: 'FCM token saved successfully'
+    });
+});

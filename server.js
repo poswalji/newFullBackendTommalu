@@ -2,6 +2,15 @@
 // Entry point for starting the server
 // dotenv is already loaded in app.js, but we load it here too for safety
 require('dotenv').config();
+const dns = require('dns');
+
+// Prevent querySrv EBADRESP on MongoDB Atlas SRV lookup by using reliable public DNS resolvers
+try {
+  dns.setServers(['8.8.8.8', '8.8.4.4', '1.1.1.1']);
+} catch (e) {
+  // Ignore if custom DNS cannot be set
+}
+
 const app = require('./app');
 // Force nodemon restart
 const mongoose = require('mongoose');

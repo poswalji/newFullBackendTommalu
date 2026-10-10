@@ -108,53 +108,131 @@ exports.sendOrderTrackingEmail = async (email, orderData) => {
     const transporter = createTransporter();
     const { orderId, status, orderNumber, customerName, finalPrice, deliveryAddress } = orderData;
 
-    const statusMessages = {
-      'Pending': 'Your order has been placed and is awaiting confirmation',
-      'Confirmed': 'Your order has been confirmed and is being prepared',
-      'OutForDelivery': 'Your order is out for delivery and will arrive soon',
-      'Delivered': 'Your order has been delivered successfully',
-      'Cancelled': 'Your order has been cancelled',
-      'Rejected': 'Your order has been rejected'
+    const statusConfig = {
+      'Pending':        { emoji: '⏳', color: '#f59e0b', bg: '#fffbeb', border: '#fcd34d', label: 'Pending',          message: 'We have received your order and it is awaiting confirmation.' },
+      'Confirmed':      { emoji: '✅', color: '#16a34a', bg: '#f0fdf4', border: '#86efac', label: 'Confirmed',         message: 'Great news! Your order has been confirmed and is being prepared.' },
+      'OutForDelivery': { emoji: '🛵', color: '#7c3aed', bg: '#faf5ff', border: '#c4b5fd', label: 'Out for Delivery', message: 'Your order is on its way! Our delivery partner is heading to your address.' },
+      'Delivered':      { emoji: '🎉', color: '#16a34a', bg: '#f0fdf4', border: '#86efac', label: 'Delivered',        message: 'Your order has been delivered successfully. We hope you enjoy your meal!' },
+      'Cancelled':      { emoji: '❌', color: '#dc2626', bg: '#fef2f2', border: '#fca5a5', label: 'Cancelled',        message: 'Your order has been cancelled. If you have any questions, please contact us.' },
+      'Rejected':       { emoji: '🚫', color: '#dc2626', bg: '#fef2f2', border: '#fca5a5', label: 'Rejected',         message: 'Your order has been rejected by the restaurant.' },
     };
 
-    const statusMessage = statusMessages[status] || 'Your order status has been updated';
+    const cfg = statusConfig[status] || { emoji: '📦', color: '#6b7280', bg: '#f9fafb', border: '#d1d5db', label: status, message: 'Your order status has been updated.' };
 
     const mailOptions = {
-      from: `"Tommalu" <${process.env.EMAIL_USER}>`,
+      from: `"Tommalu 🍱" <${process.env.EMAIL_USER}>`,
       to: email,
-      subject: `Order #${orderNumber} Status Update - Tommalu`,
+      subject: `${cfg.emoji} Order #${orderNumber} – ${cfg.label} | Tommalu`,
       html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9;">
-          <div style="background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-            <h2 style="color: #333; margin-bottom: 20px;">Order Status Update</h2>
-            <p style="color: #666; font-size: 16px; line-height: 1.6;">
-              Hello ${customerName || 'Customer'},
-            </p>
-            <p style="color: #666; font-size: 16px; line-height: 1.6;">
-              ${statusMessage}
-            </p>
-            <div style="background-color: #f0f0f0; padding: 20px; border-radius: 8px; margin: 30px 0;">
-              <p style="margin: 5px 0; color: #333;"><strong>Order Number:</strong> #${orderNumber}</p>
-              <p style="margin: 5px 0; color: #333;"><strong>Status:</strong> ${status}</p>
-              <p style="margin: 5px 0; color: #333;"><strong>Total Amount:</strong> ₹${finalPrice}</p>
-              ${deliveryAddress ? `
-                <p style="margin: 5px 0; color: #333;"><strong>Delivery Address:</strong></p>
-                <p style="margin: 5px 0; color: #666; padding-left: 20px;">
-                  ${deliveryAddress.street}, ${deliveryAddress.city}<br>
-                  ${deliveryAddress.pincode}${deliveryAddress.state ? `, ${deliveryAddress.state}` : ''}
-                </p>
-              ` : ''}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Order ${cfg.label} – Tommalu</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f3f4f6;font-family:'Segoe UI',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:32px 0;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+
+        <!-- Header -->
+        <tr>
+          <td style="background:linear-gradient(135deg,#ea580c 0%,#f97316 100%);padding:36px 40px;text-align:center;">
+            <p style="margin:0 0 6px;font-size:28px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;">🍱 Tommalu</p>
+            <p style="margin:0;font-size:14px;color:#fed7aa;font-weight:500;">Delicious Food, Delivered</p>
+          </td>
+        </tr>
+
+        <!-- Status Badge -->
+        <tr>
+          <td style="padding:32px 40px 0;text-align:center;">
+            <div style="display:inline-block;background:${cfg.bg};border:2px solid ${cfg.border};border-radius:50px;padding:12px 28px;margin-bottom:8px;">
+              <span style="font-size:22px;">${cfg.emoji}</span>
+              <span style="font-size:18px;font-weight:700;color:${cfg.color};margin-left:8px;">${cfg.label}</span>
             </div>
-            <p style="color: #666; font-size: 14px; line-height: 1.6;">
-              You can track your order status in your account dashboard.
-              <a href="${frontendUrl}/order/${orderId}" style="color: #007bff; text-decoration: none;">Track your order</a>
-            </p>
-            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
-            <p style="color: #999; font-size: 12px; text-align: center;">
-              © ${new Date().getFullYear()} Tommalu. All rights reserved.
-            </p>
-          </div>
-        </div>
+          </td>
+        </tr>
+
+        <!-- Greeting -->
+        <tr>
+          <td style="padding:24px 40px 0;text-align:center;">
+            <p style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111827;">Hello, ${customerName || 'Customer'}!</p>
+            <p style="margin:0;font-size:15px;color:#6b7280;line-height:1.6;max-width:460px;margin:0 auto;">${cfg.message}</p>
+          </td>
+        </tr>
+
+        <!-- Order Card -->
+        <tr>
+          <td style="padding:28px 40px;">
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
+              <tr>
+                <td style="background:#1f2937;padding:14px 20px;">
+                  <p style="margin:0;font-size:12px;color:#9ca3af;font-weight:600;letter-spacing:1px;text-transform:uppercase;">Order Summary</p>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:20px;">
+                  <table width="100%" cellpadding="0" cellspacing="0">
+                    <tr>
+                      <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;">
+                        <p style="margin:0;font-size:13px;color:#9ca3af;">Order Number</p>
+                        <p style="margin:4px 0 0;font-size:16px;font-weight:700;color:#111827;">#${orderNumber}</p>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding:12px 0;border-bottom:1px solid #e5e7eb;">
+                        <p style="margin:0;font-size:13px;color:#9ca3af;">Status</p>
+                        <p style="margin:4px 0 0;font-size:15px;font-weight:600;color:${cfg.color};">${cfg.label}</p>
+                      </td>
+                    </tr>
+                    ${deliveryAddress ? `
+                    <tr>
+                      <td style="padding:12px 0;border-bottom:1px solid #e5e7eb;">
+                        <p style="margin:0;font-size:13px;color:#9ca3af;">Delivery Address</p>
+                        <p style="margin:4px 0 0;font-size:15px;color:#374151;">${deliveryAddress.street}, ${deliveryAddress.city}</p>
+                        <p style="margin:2px 0 0;font-size:14px;color:#6b7280;">${deliveryAddress.pincode}</p>
+                      </td>
+                    </tr>
+                    ` : ''}
+                    <tr>
+                      <td style="padding:12px 0;">
+                        <p style="margin:0;font-size:13px;color:#9ca3af;">Total Amount</p>
+                        <p style="margin:4px 0 0;font-size:20px;font-weight:800;color:#ea580c;">₹${finalPrice}</p>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- CTA Button -->
+        <tr>
+          <td style="padding:0 40px 32px;text-align:center;">
+            <a href="${frontendUrl}/customer/orders" style="display:inline-block;background:linear-gradient(135deg,#ea580c,#f97316);color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;padding:14px 36px;border-radius:50px;letter-spacing:0.3px;">
+              Track My Order →
+            </a>
+          </td>
+        </tr>
+
+        <!-- Divider -->
+        <tr><td style="padding:0 40px;"><hr style="border:none;border-top:1px solid #f0f0f0;margin:0;"/></td></tr>
+
+        <!-- Footer -->
+        <tr>
+          <td style="padding:24px 40px;text-align:center;">
+            <p style="margin:0 0 6px;font-size:13px;color:#9ca3af;">Need help? Reply to this email or WhatsApp us.</p>
+            <p style="margin:0;font-size:12px;color:#d1d5db;">© ${new Date().getFullYear()} Tommalu. All rights reserved.</p>
+          </td>
+        </tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
       `
     };
 
@@ -361,62 +439,122 @@ exports.sendHomemadeFoodOrderStatusUpdate = async (email, orderData) => {
     const { orderNumber, customerName, foodName, status, finalAmount } = orderData;
 
     const statusConfig = {
-      'pending': { emoji: '⏳', color: '#f0ad4e', message: 'Your order is pending confirmation' },
-      'confirmed': { emoji: '✅', color: '#5cb85c', message: 'Your order has been confirmed!' },
-      'preparing': { emoji: '👨‍🍳', color: '#FF6B35', message: 'Your delicious food is being prepared' },
-      'ready': { emoji: '🍽️', color: '#5bc0de', message: 'Your food is ready and waiting for pickup/delivery' },
-      'out_for_delivery': { emoji: '🚀', color: '#5cb85c', message: 'Your order is out for delivery!' },
-      'delivered': { emoji: '🎉', color: '#28a745', message: 'Your order has been delivered. Enjoy your meal!' },
-      'cancelled': { emoji: '❌', color: '#d9534f', message: 'Your order has been cancelled' },
-      'refund_initiated': { emoji: '💰', color: '#f0ad4e', message: 'Refund has been initiated for your order' },
-      'refund_completed': { emoji: '✅', color: '#28a745', message: 'Refund has been completed for your order' },
-      'payment_received': { emoji: '💳', color: '#5cb85c', message: 'Payment received successfully!' }
+      'pending':          { emoji: '⏳', color: '#f59e0b', bg: '#fffbeb', border: '#fcd34d', label: 'Pending',          message: 'We have received your order and it is awaiting confirmation from the kitchen.' },
+      'confirmed':        { emoji: '✅', color: '#16a34a', bg: '#f0fdf4', border: '#86efac', label: 'Confirmed',         message: 'Great news! Your order has been confirmed and the kitchen is getting ready to prepare it.' },
+      'preparing':        { emoji: '👨‍🍳', color: '#ea580c', bg: '#fff7ed', border: '#fdba74', label: 'Preparing',       message: 'Our chef is preparing your delicious homemade meal with love and care.' },
+      'ready':            { emoji: '🍽️', color: '#0284c7', bg: '#f0f9ff', border: '#7dd3fc', label: 'Ready',           message: 'Your food is ready! It will be picked up for delivery very soon.' },
+      'out_for_delivery': { emoji: '🛵', color: '#7c3aed', bg: '#faf5ff', border: '#c4b5fd', label: 'Out for Delivery', message: 'Your order is on its way! Our delivery partner is heading to your address.' },
+      'delivered':        { emoji: '🎉', color: '#16a34a', bg: '#f0fdf4', border: '#86efac', label: 'Delivered',        message: 'Your order has been delivered. We hope you enjoy your meal! Please rate your experience.' },
+      'cancelled':        { emoji: '❌', color: '#dc2626', bg: '#fef2f2', border: '#fca5a5', label: 'Cancelled',        message: 'Your order has been cancelled. If you have any questions, please contact us.' },
     };
 
-    const config = statusConfig[status] || { emoji: '📦', color: '#666', message: 'Your order status has been updated' };
+    const cfg = statusConfig[status] || { emoji: '📦', color: '#6b7280', bg: '#f9fafb', border: '#d1d5db', label: status, message: 'Your order status has been updated.' };
 
     const mailOptions = {
-      from: `"Tommalu" <${process.env.EMAIL_USER}>`,
+      from: `"Tommalu 🍱" <${process.env.EMAIL_USER}>`,
       to: email,
-      subject: `${config.emoji} Order #${orderNumber} - ${status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}`,
+      subject: `${cfg.emoji} Order #${orderNumber} – ${cfg.label} | Tommalu`,
       html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9;">
-          <div style="background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-            <h2 style="color: #333; margin-bottom: 20px; text-align: center;">
-              ${config.emoji} Order Status Update
-            </h2>
-            
-            <p style="color: #666; font-size: 16px; line-height: 1.6;">
-              Hello ${customerName},
-            </p>
-            
-            <div style="background-color: ${config.color}20; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid ${config.color};">
-              <p style="margin: 0; color: ${config.color}; font-size: 18px; font-weight: bold;">
-                ${config.message}
-              </p>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Order ${cfg.label} – Tommalu</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f3f4f6;font-family:'Segoe UI',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:32px 0;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+
+        <!-- Header -->
+        <tr>
+          <td style="background:linear-gradient(135deg,#ea580c 0%,#f97316 100%);padding:36px 40px;text-align:center;">
+            <p style="margin:0 0 6px;font-size:28px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;">🍱 Tommalu</p>
+            <p style="margin:0;font-size:14px;color:#fed7aa;font-weight:500;">Homemade Food, Delivered with Love</p>
+          </td>
+        </tr>
+
+        <!-- Status Badge -->
+        <tr>
+          <td style="padding:32px 40px 0;text-align:center;">
+            <div style="display:inline-block;background:${cfg.bg};border:2px solid ${cfg.border};border-radius:50px;padding:12px 28px;margin-bottom:8px;">
+              <span style="font-size:22px;">${cfg.emoji}</span>
+              <span style="font-size:18px;font-weight:700;color:${cfg.color};margin-left:8px;">${cfg.label}</span>
             </div>
+          </td>
+        </tr>
 
-            <div style="background-color: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
-              <p style="margin: 5px 0; color: #333;"><strong>Order Number:</strong> #${orderNumber}</p>
-              <p style="margin: 5px 0; color: #333;"><strong>Food Item:</strong> ${foodName}</p>
-              <p style="margin: 5px 0; color: #333;"><strong>Total Amount:</strong> ₹${finalAmount}</p>
-              <p style="margin: 5px 0; color: #333;"><strong>Current Status:</strong> 
-                <span style="color: ${config.color}; font-weight: bold;">
-                  ${status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                </span>
-              </p>
-            </div>
+        <!-- Greeting -->
+        <tr>
+          <td style="padding:24px 40px 0;text-align:center;">
+            <p style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111827;">Hello, ${customerName}!</p>
+            <p style="margin:0;font-size:15px;color:#6b7280;line-height:1.6;max-width:460px;margin:0 auto;">${cfg.message}</p>
+          </td>
+        </tr>
 
-            <p style="color: #666; font-size: 14px; line-height: 1.6;">
-              You can track your order anytime by visiting our website with your order number and mobile number.
-            </p>
+        <!-- Order Card -->
+        <tr>
+          <td style="padding:28px 40px;">
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
+              <tr>
+                <td style="background:#1f2937;padding:14px 20px;">
+                  <p style="margin:0;font-size:12px;color:#9ca3af;font-weight:600;letter-spacing:1px;text-transform:uppercase;">Order Summary</p>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:20px;">
+                  <table width="100%" cellpadding="0" cellspacing="0">
+                    <tr>
+                      <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;">
+                        <p style="margin:0;font-size:13px;color:#9ca3af;">Order Number</p>
+                        <p style="margin:4px 0 0;font-size:16px;font-weight:700;color:#111827;">#${orderNumber}</p>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding:12px 0;border-bottom:1px solid #e5e7eb;">
+                        <p style="margin:0;font-size:13px;color:#9ca3af;">Food Item</p>
+                        <p style="margin:4px 0 0;font-size:15px;font-weight:600;color:#374151;">${foodName}</p>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding:12px 0;">
+                        <p style="margin:0;font-size:13px;color:#9ca3af;">Total Amount</p>
+                        <p style="margin:4px 0 0;font-size:20px;font-weight:800;color:#ea580c;">₹${finalAmount}</p>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
 
-            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
-            <p style="color: #999; font-size: 12px; text-align: center;">
-              © ${new Date().getFullYear()} Tommalu. All rights reserved.
-            </p>
-          </div>
-        </div>
+        <!-- CTA Button -->
+        <tr>
+          <td style="padding:0 40px 32px;text-align:center;">
+            <a href="${frontendUrl}/customer/orders" style="display:inline-block;background:linear-gradient(135deg,#ea580c,#f97316);color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;padding:14px 36px;border-radius:50px;letter-spacing:0.3px;">
+              Track My Order →
+            </a>
+          </td>
+        </tr>
+
+        <!-- Divider -->
+        <tr><td style="padding:0 40px;"><hr style="border:none;border-top:1px solid #f0f0f0;margin:0;"/></td></tr>
+
+        <!-- Footer -->
+        <tr>
+          <td style="padding:24px 40px;text-align:center;">
+            <p style="margin:0 0 6px;font-size:13px;color:#9ca3af;">Need help? Reply to this email or WhatsApp us.</p>
+            <p style="margin:0;font-size:12px;color:#d1d5db;">© ${new Date().getFullYear()} Tommalu. All rights reserved.</p>
+          </td>
+        </tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
       `
     };
 

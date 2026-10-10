@@ -3,12 +3,12 @@ const Notification = require('../models/notificationSchema');
 const User = require('../models/user');
 const Store = require('../models/store');
 const Order = require('../models/orderSchema');
-const { writeNotification, emitToUser } = require('../utils/firebase');
+const { writeNotification, emitToUser, getAdmin } = require('../utils/firebase');
 const { info } = require('../utils/logger');
 const emailService = require('../utils/emailService');
 
 /**
- * Create a notification and emit via Firebase Realtime Database
+ * Create a notification and emit via Firebase Realtime Database and FCM Push
  */
 exports.createNotification = async ({
   userId,
@@ -32,11 +32,10 @@ exports.createNotification = async ({
     });
 
     // Populate notification for response
-    await notification.populate('userId', 'name email role');
+    await notification.populate('userId', 'name email role fcmTokens');
 
     // Emit real-time notification via Firebase Realtime Database
     try {
-      // ✅ FIXED: Ensure userId is converted to string
       const userRoomId = userId?._id?.toString() || userId?.toString() || userId;
       writeNotification(userRoomId, {
         id: notification._id.toString(),
@@ -48,8 +47,46 @@ exports.createNotification = async ({
         createdAt: notification.createdAt.toISOString()
       });
     } catch (firebaseError) {
-      // Firebase might not be initialized, log but don't fail
       console.warn('Firebase emit failed:', firebaseError.message);
+    }
+
+    // ✅ FCM Push Notification
+    try {
+      if (notification.userId && notification.userId.fcmTokens && notification.userId.fcmTokens.length > 0) {
+        const admin = getAdmin();
+        const payload = {
+          notification: {
+            title: notification.title,
+            body: notification.message,
+          },
+          data: {
+            type: notification.type,
+            relatedId: notification.relatedId ? notification.relatedId.toString() : '',
+            url: `/customer/orders` // Can be dynamic based on type
+          },
+          tokens: notification.userId.fcmTokens
+        };
+
+        const response = await admin.messaging().sendEachForMulticast(payload);
+        
+        // Remove invalid tokens if any
+        if (response.failureCount > 0) {
+          const failedTokens = [];
+          response.responses.forEach((resp, idx) => {
+            if (!resp.success) {
+              failedTokens.push(notification.userId.fcmTokens[idx]);
+            }
+          });
+          
+          if (failedTokens.length > 0) {
+             await User.findByIdAndUpdate(userId, {
+               $pullAll: { fcmTokens: failedTokens }
+             });
+          }
+        }
+      }
+    } catch (fcmError) {
+      console.warn('FCM Push Notification failed:', fcmError.message);
     }
 
     info('Notification created', {

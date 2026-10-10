@@ -57,6 +57,14 @@ exports.getDB = () => {
   return db;
 };
 
+// Get Firebase Admin instance
+exports.getAdmin = () => {
+  if (!db) {
+    throw new Error('Firebase not initialized. Call initializeFirebase first.');
+  }
+  return admin;
+};
+
 // Helper functions to write to Firebase Realtime Database
 exports.emitToUser = (userId, event, data) => {
   try {
@@ -153,6 +161,68 @@ exports.writeNotification = (userId, notification) => {
   } catch (error) {
     console.warn('Firebase write notification failed:', error.message);
     return null;
+  }
+};
+
+// FCM Push Notifications for Admins
+exports.sendAdminPushNotification = async (title, body, dataPayload = {}) => {
+  try {
+    const adminInst = exports.getAdmin();
+    // 1. Fetch all admins from MongoDB who have FCM tokens
+    const User = require('../models/user');
+    // Assuming roles admin/superAdmin/supportAdmin
+    const admins = await User.find({ 
+      role: { $in: ['admin', 'superAdmin', 'supportAdmin'] },
+      fcmTokens: { $exists: true, $not: { $size: 0 } }
+    });
+
+    let tokens = [];
+    admins.forEach(adminDoc => {
+      if (adminDoc.fcmTokens && Array.isArray(adminDoc.fcmTokens)) {
+        tokens.push(...adminDoc.fcmTokens);
+      }
+    });
+
+    // Remove duplicates
+    tokens = [...new Set(tokens)];
+
+    if (tokens.length === 0) {
+      console.log('No admin FCM tokens found. Skipping push notification.');
+      return;
+    }
+
+    const message = {
+      notification: {
+        title: title,
+        body: body,
+      },
+      data: dataPayload,
+      tokens: tokens,
+    };
+
+    const response = await adminInst.messaging().sendEachForMulticast(message);
+    console.log(`[FCM] Push Notification sent. Success: ${response.successCount}, Failed: ${response.failureCount}`);
+
+    // Cleanup invalid tokens (Phase 6 requirement)
+    if (response.failureCount > 0) {
+      const failedTokens = [];
+      response.responses.forEach((resp, idx) => {
+        if (!resp.success) {
+          failedTokens.push(tokens[idx]);
+        }
+      });
+      if (failedTokens.length > 0) {
+        // Remove these tokens from all users to clean up DB
+        await User.updateMany(
+          { fcmTokens: { $in: failedTokens } },
+          { $pullAll: { fcmTokens: failedTokens } }
+        );
+        console.log(`[FCM] Cleaned up ${failedTokens.length} invalid tokens.`);
+      }
+    }
+  } catch (error) {
+    // We catch and just log because we NEVER want FCM failure to break order creation (Phase 1 Requirement)
+    console.error('❌ FCM sendAdminPushNotification Error:', error.message);
   }
 };
 

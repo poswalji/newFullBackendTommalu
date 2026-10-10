@@ -24,11 +24,11 @@ const dailyMenuSchema = new mongoose.Schema({
         // Distinct Menu Items for Lunch vs Dinner
         lunchItems: {
             type: [String],
-            default: ['5 Ghee Roti', 'Salad', 'Dal OR Lahsun Chutney', 'Desi Chhach']
+            default: ['4 Roti', 'Rice', 'Salad', 'Dal or Lahsun Chutney', 'Chach']
         },
         dinnerItems: {
             type: [String],
-            default: ['5 Ghee Roti', 'Salad', 'Dal OR Lahsun Chutney', 'Desi Chhach']
+            default: ['4 Roti', 'Rice', 'Salad', 'Dal or Lahsun Chutney']
         },
         // Deprecated but kept for backward compatibility (can be removed later)
         fixedItems: {

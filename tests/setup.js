@@ -12,6 +12,13 @@ jest.mock('../utils/emailService', () => ({
   sendPasswordResetEmail: jest.fn().mockResolvedValue(true),
 }));
 
+const dns = require('dns');
+try {
+  dns.setServers(['8.8.8.8', '8.8.4.4', '1.1.1.1']);
+} catch (e) {
+  // Ignore
+}
+
 const mongoose = require('mongoose');
 
 // Use test database or append _test to the database name

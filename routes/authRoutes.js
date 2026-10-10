@@ -187,6 +187,20 @@ router.delete('/delete', protect, authController.deleteAccount);
 
 /**
  * @openapi
+ * /api/auth/fcm-token:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Save FCM device token
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: FCM token saved
+ */
+router.post('/fcm-token', protect, authController.saveFcmToken);
+
+/**
+ * @openapi
  * /api/auth/verify-email:
  *   post:
  *     tags: [Auth]

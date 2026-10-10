@@ -1,5 +1,14 @@
 // app.js
 require('dotenv').config();
+const dns = require('dns');
+
+// Prevent querySrv EBADRESP on MongoDB Atlas SRV lookup by using reliable public DNS resolvers
+try {
+  dns.setServers(['8.8.8.8', '8.8.4.4', '1.1.1.1']);
+} catch (e) {
+  // Ignore if custom DNS cannot be set
+}
+
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
@@ -168,6 +177,7 @@ app.use("/api/disputes", require("./routes/disputeRoutes"));
 // app.use("/api/payouts", require("./routes/payoutRoutes"));
 app.use("/api/notifications", require("./routes/notificationRoutes"));
 app.use("/api/subscriptions", require("./routes/subscriptionRoutes"));
+app.use("/api/referrals", require("./routes/referralRoutes"));
 app.use("/api/delivery-boys", require("./routes/deliveryBoyRoutes"));
 // app.use("/api/admin/homemade-food", require("./routes/homemadeFoodRoutes")); // Moved up
 app.use("/api/homemade", require("./routes/homemadeFoodRoutes")); // Public access alias

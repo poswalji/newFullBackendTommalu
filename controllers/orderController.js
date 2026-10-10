@@ -92,6 +92,7 @@ const Store = require("../models/store");
 const Cart = require("../models/cartSchema");
 const Payment = require("../models/payment");
 const notificationService = require('../services/notificationService');
+const emailService = require('../utils/emailService');
 const { calculateFinalAmount } = require('./cartController');
 const { isStoreOpen } = require('../utils/storeUtils');
 
@@ -380,6 +381,21 @@ exports.createOrder = asyncHandler(async (req, res, next) => {
         console.error('Error creating customer notification:', err);
     });
 
+    // ✅ Send Notification Email to Admin
+    try {
+
+        const adminEmail = process.env.ADMIN_EMAIL || 'admin@tommalu.com';
+        emailService.sendNewOrderEmailToStoreOwner(adminEmail, {
+            orderId: newOrder._id,
+            orderNumber: newOrder._id.toString().slice(-6).toUpperCase(),
+            customerName: user.name || 'Customer',
+            finalPrice: newOrder.finalPrice,
+            items: newOrder.items
+        }).catch(err => console.error('Failed to send new order email to admin:', err));
+    } catch (emailErr) {
+        console.error('Error in email sending block:', emailErr);
+    }
+
     res.status(201).json({
         success: true,
         data: {
@@ -624,6 +640,26 @@ exports.updateOrderStatus = asyncHandler(async (req, res, next) => {
             console.error('Error updating payment status on rejection:', paymentError);
             // Don't fail the order status update if payment update fails
         }
+    }
+
+    // ✅ Send Email to Customer When Status Changes
+    try {
+        const customerUser = updatedOrder.userId;
+        const customerEmail = customerUser?.email;
+        const customerName = customerUser?.name || 'Customer';
+
+        if (customerEmail) {
+            await emailService.sendOrderTrackingEmail(customerEmail, {
+                orderId: updatedOrder._id,
+                status,
+                orderNumber: updatedOrder._id.toString().slice(-6).toUpperCase(),
+                customerName,
+                finalPrice: updatedOrder.finalPrice,
+                deliveryAddress: updatedOrder.deliveryAddress
+            });
+        }
+    } catch (emailErr) {
+        console.error('Failed to send status update email to customer:', emailErr);
     }
 
     res.status(200).json({

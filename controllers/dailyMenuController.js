@@ -5,6 +5,7 @@ const AppError = require('../utils/appError');
 const catchAsync = require('../utils/asyncHandler');
 const emailService = require('../utils/emailService');
 const User = require('../models/user');
+const { normalizeLegacyOrder, normalizeNewOrder, mapStatusToOriginal } = require('../utils/orderNormalizer');
 
 // Helper to get current Indian time
 const getIndianTime = () => {
@@ -86,8 +87,8 @@ exports.getTodayMenu = catchAsync(async (req, res, next) => {
     if (!menu) {
         let lunchSabji = 'Sabji';
         let dinnerSabji = 'Sabji';
-        let lunchItems = ['5 Ghee Roti', 'Salad', 'Dal OR Lahsun Chutney', 'Desi Chhach'];
-        let dinnerItems = ['5 Ghee Roti', 'Salad', 'Dal OR Lahsun Chutney', 'Desi Chhach'];
+        let lunchItems = ['4 Roti', 'Rice', 'Salad', 'Dal or Lahsun Chutney', 'Chach'];
+        let dinnerItems = ['4 Roti', 'Rice', 'Salad', 'Dal or Lahsun Chutney'];
 
         menu = await DailyMenu.create({
             date: todayStr,
@@ -354,7 +355,26 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
         return next(new AppError('Hum abhi next batch prepare kar rahe hain. Best quality maintain karne ke liye thoda break lete hain 🙏', 400));
     }
 
-    const { customerName, mobileNumber, area, customAddress, quantity, slot, locationLink, promoCode } = req.body;
+    const { customerName, mobileNumber, area, customAddress, quantity, slot, locationLink, promoCode, idempotencyKey } = req.body;
+
+    // Idempotency Check (Phase 3)
+    if (idempotencyKey) {
+        const existingOrder = await Order.findOne({ 'metadata.idempotencyKey': idempotencyKey });
+        if (existingOrder) {
+            console.log(`[Idempotency] Recovered existing order for key: ${idempotencyKey}`);
+            return res.status(200).json({ // Return 200 instead of 201 for idempotency
+                success: true,
+                data: {
+                    orderId: existingOrder._id,
+                    mealType: existingOrder.metadata?.mealType || slot,
+                    plates: existingOrder.items?.[0]?.quantity || quantity,
+                    deliveryTime: slot === 'Lunch' ? '12:30–2:00 PM' : '8:00–9:00 PM',
+                    paymentMode: 'COD (Cash on Delivery)',
+                    totalAmount: existingOrder.finalPrice
+                }
+            });
+        }
+    }
 
     // Basic Validation
     if (!customerName || !mobileNumber || !area || !quantity || !slot) {
@@ -542,7 +562,8 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
             customerName: customerName,
             customerPhone: mobileNumber,
             mealType: slot,
-            orderedItems: req.body.items ? req.body.items.join(', ') : '' // Store detailed items string
+            orderedItems: req.body.items ? req.body.items.join(', ') : '', // Store detailed items string
+            idempotencyKey: idempotencyKey || null
         }
     });
 
@@ -557,7 +578,7 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
         await appliedPromo.apply(userId, order._id, subtotal, discountAmount);
     }
 
-    // Send Notification Email
+    // Send Notification Email to Admin
     try {
         const adminEmail = process.env.ADMIN_EMAIL || 'admin@tommalu.com'; // Fallback
         await emailService.sendHomemadeFoodOrderNotification(adminEmail, {
@@ -576,9 +597,39 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
             specialInstructions: slot === 'Lunch' ? 'Lunch Slot' : 'Dinner Slot'
         });
     } catch (emailErr) {
-        console.error("Failed to send email notification:", emailErr);
+        console.error("Failed to send email notification to admin:", emailErr);
         // Don't fail the request, just log it
     }
+
+    // Trigger Admin RTDB & FCM Notifications asynchronously
+    // DO NOT await these so we don't block order creation
+    setTimeout(async () => {
+        try {
+            const firebase = require('../utils/firebase');
+            
+            // 1. RTDB Event for live dashboard update (Phase 5)
+            firebase.emitToAdmin('NEW_ORDER', {
+                orderId: order._id,
+                orderNumber: order._id.toString().slice(-6).toUpperCase(),
+                customerName: customerName,
+                area: area,
+                amount: finalPrice,
+                mealType: slot,
+                timestamp: new Date().toISOString()
+            });
+
+            // 2. FCM Push Notification (Phase 4)
+            const title = `🔔 New Tommalu Order`;
+            const body = `Order #${order._id.toString().slice(-6).toUpperCase()} • ₹${finalPrice} • ${area}`;
+            await firebase.sendAdminPushNotification(title, body, {
+                orderId: order._id.toString(),
+                type: 'new_order',
+                url: `/admin/orders/${order._id}`
+            });
+        } catch (err) {
+            console.error("Failed to trigger admin RTDB/FCM notifications:", err);
+        }
+    }, 0);
 
     res.status(201).json({
         success: true,
@@ -664,6 +715,23 @@ exports.confirmOrder = catchAsync(async (req, res, next) => {
 
     order.status = 'Confirmed';
     await order.save();
+
+    // Send Confirmation Email to Customer
+    try {
+        const User = require('../models/user');
+        const customer = await User.findById(order.userId).select('email name');
+        if (customer && customer.email) {
+            await emailService.sendHomemadeFoodOrderStatusUpdate(customer.email, {
+                orderNumber: order._id.toString().slice(-6).toUpperCase(),
+                customerName: order.metadata?.customerName || customer.name || 'Customer',
+                foodName: order.items?.[0]?.itemName || 'Tiffin',
+                status: 'confirmed',
+                finalAmount: order.finalPrice
+            });
+        }
+    } catch (emailErr) {
+        console.error('Failed to send confirmation email:', emailErr);
+    }
 
     res.status(200).json({
         success: true,
@@ -754,13 +822,44 @@ exports.getAllOrders = catchAsync(async (req, res, next) => {
     }
 
     // Type Filter (Subscription vs Daily Meal)
-    const { type } = req.query;
+    const { type, area, mealType } = req.query;
     if (type === 'subscription') {
         orderFilter['metadata.isSubscription'] = true;
-        // Legacy orders don't strictly have isSubscription, so maybe exclude them or assume they aren't
-        // homemadeFilter... (Legacy didn't have subs)
     } else if (type === 'meal') {
         orderFilter['metadata.isSubscription'] = { $ne: true };
+    }
+
+    // Area Filter
+    if (area && area !== 'all') {
+        // orderSchema has direct 'area' or in deliveryAddress
+        // Legacy has it in deliveryAddress.landmark
+        const areaRegex = { $regex: area, $options: 'i' };
+        homemadeFilter['deliveryAddress.street'] = areaRegex; // Legacy stored it there roughly
+        orderFilter.$or = [
+            { area: area },
+            { 'deliveryAddress.street': areaRegex }
+        ];
+    }
+
+    // Meal Type Filter (Lunch/Dinner)
+    if (mealType && mealType !== 'all') {
+        // Legacy has preferredDeliverySlot
+        if (mealType.toLowerCase() === 'lunch') {
+            homemadeFilter.preferredDeliverySlot = { $in: ['afternoon', 'any'] };
+        } else if (mealType.toLowerCase() === 'dinner') {
+            homemadeFilter.preferredDeliverySlot = { $in: ['evening'] };
+        }
+        
+        // New order uses timeSlot or metadata.mealType
+        const mealRegex = new RegExp(`^${mealType}$`, 'i');
+        // Because of $or already used in Area filter, we should use $and to combine them if needed
+        if (!orderFilter.$and) orderFilter.$and = [];
+        orderFilter.$and.push({
+            $or: [
+                { timeSlot: mealRegex },
+                { 'metadata.mealType': mealRegex }
+            ]
+        });
     }
 
     // Date Filter
@@ -802,45 +901,9 @@ exports.getAllOrders = catchAsync(async (req, res, next) => {
 
     console.log(`📊 [Admin] Found ${legacyOrders.length} Legacy, ${newOrders.length} New`);
 
-    // 3. Map others (same as before)
-    const mappedLegacy = legacyOrders.map(o => ({
-        _id: o._id,
-        source: 'legacy',
-        orderNumber: o.orderNumber || o._id.toString().slice(-6).toUpperCase(),
-        customerName: o.customerName,
-        mobileNumber: o.mobileNumber,
-        foodName: o.foodName || 'Homemade Item',
-        quantity: o.quantity,
-        finalAmount: o.finalAmount,
-        status: o.status.toLowerCase(),
-        createdAt: o.createdAt,
-        deliveryAddress: o.deliveryAddress,
-        adminNotes: o.adminNotes || '',
-        specialInstructions: o.specialInstructions
-    }));
-
-    const mappedNew = newOrders.map(o => {
-        let simpleFoodName = 'Homemade Thali';
-        if (o.metadata?.mealType) simpleFoodName = `${o.metadata.mealType} Thali`;
-        else if (o.items?.[0]?.itemName) simpleFoodName = o.items[0].itemName;
-
-        return {
-            _id: o._id,
-            source: 'new',
-            orderNumber: o.orderNumber || o._id.toString().slice(-6).toUpperCase(),
-            customerName: o.metadata?.customerName || 'Unknown',
-            mobileNumber: o.metadata?.customerPhone || 'Unknown',
-            foodName: simpleFoodName,
-            quantity: o.items?.[0]?.quantity || 1,
-            finalAmount: o.finalPrice,
-            deliveryCharge: o.deliveryCharge || 0,
-            status: o.status.toLowerCase(),
-            createdAt: o.createdAt,
-            deliveryAddress: o.deliveryAddress,
-            adminNotes: o.metadata?.adminNotes || '',
-            specialInstructions: o.metadata?.orderedItems || o.metadata?.mealType // Show full items list (Extra Roti etc) if available
-        };
-    });
+    // 3. Normalize Orders
+    const mappedLegacy = legacyOrders.map(o => normalizeLegacyOrder(o));
+    const mappedNew = newOrders.map(o => normalizeNewOrder(o));
 
     // 4. Merge and Sort
     const allOrders = [...mappedLegacy, ...mappedNew].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
@@ -882,43 +945,9 @@ exports.getOrderById = catchAsync(async (req, res, next) => {
 
     let formattedOrder;
     if (source === 'new') {
-        let simpleFoodName = 'Homemade Thali';
-        if (order.metadata?.mealType) simpleFoodName = `${order.metadata.mealType} Thali`;
-        else if (order.items?.[0]?.itemName) simpleFoodName = order.items[0].itemName;
-
-        formattedOrder = {
-            _id: order._id,
-            orderNumber: order.orderNumber || order._id.toString().slice(-6).toUpperCase(),
-            customerName: order.metadata?.customerName || 'Unknown',
-            mobileNumber: order.metadata?.customerPhone || 'Unknown',
-            email: order.metadata?.email || '',
-            foodName: simpleFoodName,
-            quantity: order.items?.[0]?.quantity || 1,
-            finalAmount: order.finalPrice,
-            deliveryCharge: order.deliveryCharge || 0,
-            status: order.status.toLowerCase(),
-            createdAt: order.createdAt,
-            deliveryAddress: order.deliveryAddress,
-            specialInstructions: order.metadata?.mealType,
-            adminNotes: order.metadata?.adminNotes || order.rejectionReason || ''
-        };
+        formattedOrder = normalizeNewOrder(order);
     } else {
-        formattedOrder = {
-            _id: order._id,
-            orderNumber: order.orderNumber,
-            customerName: order.customerName,
-            mobileNumber: order.mobileNumber,
-            email: order.email,
-            foodName: order.foodName || order.foodItem?.name,
-            quantity: order.quantity,
-            finalAmount: order.finalAmount,
-            deliveryCharge: order.deliveryCharge,
-            status: order.status.toLowerCase(),
-            createdAt: order.createdAt,
-            deliveryAddress: order.deliveryAddress,
-            specialInstructions: order.specialInstructions,
-            adminNotes: order.adminNotes
-        };
+        formattedOrder = normalizeLegacyOrder(order);
     }
 
     res.status(200).json({
@@ -945,8 +974,8 @@ exports.updateOrderStatus = catchAsync(async (req, res, next) => {
         return next(new AppError('No order found with that ID', 404));
     }
 
-    // Update Logic
-    order.status = status;
+    // Update Logic (map normalized status back to schema-specific enum)
+    order.status = mapStatusToOriginal(status, source);
 
     if (source === 'new') {
         if (adminNotes) {
@@ -960,8 +989,11 @@ exports.updateOrderStatus = catchAsync(async (req, res, next) => {
 
     await order.save();
 
+    // Re-normalize for comparison inside the function
+    const normalizedStatus = status.toUpperCase();
+
     // ✅ Special handling: When order is Delivered, grant +10 loyalty tokens to customer
-    if (status === 'Delivered' || status === 'delivered') {
+    if (normalizedStatus === 'DELIVERED') {
         try {
             const customerId = source === 'new' ? order.userId : (order.userId || order.customerId); // Depending on legacy/new schema
             if (customerId) {
@@ -973,14 +1005,40 @@ exports.updateOrderStatus = catchAsync(async (req, res, next) => {
             console.error('Error granting tokens on delivery:', err);
         }
     }
+    // ✅ Send Status Update Email to Customer
+    try {
+        const customerId = source === 'new' ? order.userId : (order.userId || order.customerId);
+        if (customerId) {
+            const customer = await User.findById(customerId).select('email name');
+            if (customer && customer.email) {
+                let simpleFoodName = 'Homemade Thali';
+                if (source === 'new') {
+                    if (order.metadata?.mealType) simpleFoodName = `${order.metadata.mealType} Thali`;
+                    else if (order.items?.[0]?.itemName) simpleFoodName = order.items[0].itemName;
+                } else {
+                    simpleFoodName = order.foodName || order.foodItem?.name || 'Homemade Item';
+                }
+
+                await emailService.sendHomemadeFoodOrderStatusUpdate(customer.email, {
+                    orderNumber: order.orderNumber || order._id.toString().slice(-6).toUpperCase(),
+                    customerName: source === 'new' ? (order.metadata?.customerName || customer.name || 'Customer') : (order.customerName || customer.name || 'Customer'),
+                    foodName: simpleFoodName,
+                    status: status.toLowerCase(),
+                    finalAmount: source === 'new' ? order.finalPrice : order.finalAmount
+                });
+            }
+        }
+    } catch (emailErr) {
+        console.error('Failed to send status update email:', emailErr);
+    }
 
     // Return formatted
-    const formattedOrder = {
-        _id: order._id,
-        orderNumber: order.orderNumber || order._id.toString().slice(-6).toUpperCase(),
-        status: order.status.toLowerCase(),
-        adminNotes: source === 'new' ? order.metadata?.adminNotes : order.adminNotes
-    };
+    let formattedOrder;
+    if (source === 'new') {
+        formattedOrder = require('../utils/orderNormalizer').normalizeNewOrder(order);
+    } else {
+        formattedOrder = require('../utils/orderNormalizer').normalizeLegacyOrder(order);
+    }
 
     res.status(200).json({
         success: true,

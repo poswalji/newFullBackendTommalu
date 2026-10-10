@@ -59,6 +59,10 @@ const userSchema = new mongoose.Schema({
     enum: ["active", "suspended"],
     default: "active"
   },
+  fcmTokens: [{
+    type: String,
+    trim: true
+  }],
 
   // ✅ Multiple saved addresses
   addresses: [
@@ -120,8 +124,16 @@ const userSchema = new mongoose.Schema({
   unseenTokenRewards: {
     type: Number,
     default: 0
+  },
+  
+  // ✅ Referral System
+  referralCode: {
+    type: String,
+    unique: true,
+    sparse: true,
+    uppercase: true,
+    trim: true
   }
-
 },
 {
   timestamps: true
@@ -130,8 +142,17 @@ const userSchema = new mongoose.Schema({
 
 // ✅ Add password hashing middleware
 userSchema.pre('save', async function(next) {
-    if (!this.isModified('password')) return next();
-    this.password = await bcrypt.hash(this.password, 12);
+    if (this.isModified('password')) {
+        this.password = await bcrypt.hash(this.password, 12);
+    }
+    
+    // Auto-generate referral code if not present
+    if (!this.referralCode) {
+        // e.g. TOM-A8D9B
+        const randomString = Math.random().toString(36).substring(2, 7).toUpperCase();
+        this.referralCode = `TOM-${randomString}`;
+    }
+    
     next();
 });
 
