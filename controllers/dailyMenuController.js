@@ -107,17 +107,11 @@ exports.getTodayMenu = catchAsync(async (req, res, next) => {
     const currentMinute = now.getMinutes();
 
     // Slot Logic
-    // Lunch: Preorder close 12:00 PM
-    let isLunchOpen = false;
-    if (currentHour < 12 || (currentHour === 11 && currentMinute <= 59)) {
-        isLunchOpen = true;
-    }
-    // Strict cut-off
-    if (currentHour >= 12) isLunchOpen = false;
+    // Lunch: Closes at 4:00 PM
+    let isLunchOpen = currentHour < 16;
 
-    // Dinner: Preorder close 7:00 PM
-    let isDinnerOpen = false;
-    if (currentHour < 19) isDinnerOpen = true;
+    // Dinner: Closes at 11:00 PM
+    let isDinnerOpen = currentHour < 23;
 
     // Response formatting based on Day
     let responseData = {
@@ -389,22 +383,21 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
         return next(new AppError('Detailed address is required', 400));
     }
 
+    // Slot Validation & Time Check
     const now = getIndianTime();
     const currentHour = now.getHours();
 
-    // 8 AM Start Time Check
-    if (currentHour < 8) {
-        return next(new AppError('Pre-orders open at 8:00 AM', 400));
-    }
-
-    // Slot Validation & Time Check
     if (slot === 'Lunch') {
-        if (currentHour >= 12) return next(new AppError('Lunch preorders closed (Cutoff: 12:00 PM)', 400));
+        if (currentHour >= 16) {
+            return next(new AppError('Lunch orders are closed after 4:00 PM', 400));
+        }
     } else if (slot === 'Dinner') {
         if (menu.dayOfWeek === 'Sunday' && !menu.sundayMenu.isDinnerSlotOpen) {
             return next(new AppError('Dinner slot is closed for today', 400));
         }
-        if (currentHour >= 19) return next(new AppError('Dinner preorders closed (Cutoff: 7:00 PM)', 400));
+        if (currentHour >= 23) {
+            return next(new AppError('Dinner orders are closed after 11:00 PM', 400));
+        }
     } else {
         return next(new AppError('Invalid slot', 400));
     }
