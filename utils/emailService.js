@@ -1,12 +1,50 @@
 const nodemailer = require('nodemailer');
 const frontendUrl = process.env.FRONTEND_URL || "https://tommalu.com"
+const dns = require('dns');
+
+// Dynamically resolved IPv6 host for Gmail SMTP to bypass IPv4 firewall/ISP drops on Windows
+let activeGmailHost = '2404:6800:4013:813::6c';
+
+const resolveGmailHost = async () => {
+  try {
+    const addresses = await dns.promises.resolve6('smtp.gmail.com');
+    if (addresses && addresses.length > 0) {
+      activeGmailHost = addresses[0];
+    }
+  } catch (err) {
+    // Keep fallback
+  }
+  return activeGmailHost;
+};
+
+// Initial background resolve and periodic refresh
+resolveGmailHost().catch(() => {});
+setInterval(() => resolveGmailHost().catch(() => {}), 15 * 60 * 1000);
+
 // Create reusable transporter object using SMTP transport
 const createTransporter = () => {
+  const service = process.env.EMAIL_SERVICE || 'gmail';
+  if (service.toLowerCase() === 'gmail') {
+    return nodemailer.createTransport({
+      host: activeGmailHost,
+      port: 465,
+      secure: true,
+      auth: {
+        user: process.env.EMAIL_USER, // Your Gmail email
+        pass: process.env.EMAIL_PASSWORD // Your Gmail app password
+      },
+      tls: {
+        servername: 'smtp.gmail.com',
+        rejectUnauthorized: false
+      }
+    });
+  }
+
   return nodemailer.createTransport({
-    service: process.env.EMAIL_SERVICE || 'gmail',
+    service,
     auth: {
-      user: process.env.EMAIL_USER, // Your Gmail email
-      pass: process.env.EMAIL_PASSWORD // Your Gmail app password
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASSWORD
     }
   });
 };
@@ -60,6 +98,8 @@ exports.sendPasswordResetEmail = async (email, resetToken, resetUrl) => {
       from: `"Tommalu" <${process.env.EMAIL_USER}>`,
       to: email,
       subject: 'Password Reset Request - Tommalu',
+      replyTo: process.env.EMAIL_USER,
+      text: `Hello,\n\nWe received a request to reset your password. Click the link below to create a new password:\n${resetUrl}\n\nThis link will expire in 1 hour.\n\nIf you didn't request this, please ignore this email.\n\nTommalu Team`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9;">
           <div style="background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
@@ -122,7 +162,9 @@ exports.sendOrderTrackingEmail = async (email, orderData) => {
     const mailOptions = {
       from: `"Tommalu 🍱" <${process.env.EMAIL_USER}>`,
       to: email,
+      replyTo: process.env.EMAIL_USER,
       subject: `${cfg.emoji} Order #${orderNumber} – ${cfg.label} | Tommalu`,
+      text: `Hello ${customerName || 'Customer'},\n\n${cfg.message}\n\nOrder Number: #${orderNumber}\nStatus: ${cfg.label}\nTotal: ₹${finalPrice || '0'}\n\nTrack your order in your Tommalu account.\n\nThank you for choosing Tommalu!`,
       html: `
 <!DOCTYPE html>
 <html lang="en">
@@ -356,7 +398,9 @@ exports.sendHomemadeFoodOrderNotification = async (email, orderData) => {
     const mailOptions = {
       from: `"Tommalu" <${process.env.EMAIL_USER}>`,
       to: email,
+      replyTo: process.env.EMAIL_USER,
       subject: `🍽️ New Homemade Food Order - #${orderNumber}`,
+      text: `New Homemade Food Order Received!\n\nOrder #${orderNumber}\nItem: ${foodName} x ${quantity}\nTotal Amount: ₹${finalAmount}\nCustomer: ${customerName} (${mobileNumber})\nAddress: ${deliveryAddress.street}, ${deliveryAddress.city} - ${deliveryAddress.pincode}\nSpecial Instructions: ${specialInstructions || 'None'}\n\nPlease check the admin panel for details.`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9;">
           <div style="background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
@@ -453,7 +497,9 @@ exports.sendHomemadeFoodOrderStatusUpdate = async (email, orderData) => {
     const mailOptions = {
       from: `"Tommalu 🍱" <${process.env.EMAIL_USER}>`,
       to: email,
+      replyTo: process.env.EMAIL_USER,
       subject: `${cfg.emoji} Order #${orderNumber} – ${cfg.label} | Tommalu`,
+      text: `Hello ${customerName},\n\n${cfg.message}\n\nOrder Number: #${orderNumber}\nFood Item: ${foodName}\nTotal Amount: ₹${finalAmount}\n\nTrack your order in your Tommalu account.\n\nThank you for choosing Tommalu!`,
       html: `
 <!DOCTYPE html>
 <html lang="en">

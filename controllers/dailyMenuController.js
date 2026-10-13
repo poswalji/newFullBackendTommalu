@@ -4,6 +4,7 @@ const Order = require('../models/orderSchema');
 const AppError = require('../utils/appError');
 const catchAsync = require('../utils/asyncHandler');
 const emailService = require('../utils/emailService');
+const notificationService = require('../services/notificationService');
 const User = require('../models/user');
 const { normalizeLegacyOrder, normalizeNewOrder, mapStatusToOriginal } = require('../utils/orderNormalizer');
 
@@ -105,13 +106,18 @@ exports.getTodayMenu = catchAsync(async (req, res, next) => {
     const now = getIndianTime();
     const currentHour = now.getHours();
     const currentMinute = now.getMinutes();
+    const totalMinutes = currentHour * 60 + currentMinute;
 
     // Slot Logic
-    // Lunch: Closes at 4:00 PM
+    // Lunch: Closes at 4:00 PM (16:00)
     let isLunchOpen = currentHour < 16;
+    // Lunch delivery charge: ₹30 after 1:00 PM (13:00)
+    let lunchDeliveryCharge = totalMinutes >= 13 * 60 ? 30 : 0;
 
-    // Dinner: Closes at 11:00 PM
+    // Dinner: Closes at 11:00 PM (23:00)
     let isDinnerOpen = currentHour < 23;
+    // Dinner delivery charge: ₹30 after 9:00 PM (21:00)
+    let dinnerDeliveryCharge = totalMinutes >= 21 * 60 ? 30 : 0;
 
     // Response formatting based on Day
     let responseData = {
@@ -122,12 +128,18 @@ exports.getTodayMenu = catchAsync(async (req, res, next) => {
             lunch: {
                 isOpen: isLunchOpen,
                 deliveryTime: "1:00–2:00 PM",
-                message: isLunchOpen ? "Preorders Open" : "Preorders Closed"
+                deliveryCharge: lunchDeliveryCharge,
+                message: isLunchOpen 
+                    ? (lunchDeliveryCharge > 0 ? "Orders Open (₹30 Delivery)" : "Preorders Open (Free Delivery)") 
+                    : "Preorders Closed"
             },
             dinner: {
                 isOpen: isDinnerOpen,
                 deliveryTime: "7:00–8:00 PM",
-                message: isDinnerOpen ? "Preorders Open" : "Preorders Closed"
+                deliveryCharge: dinnerDeliveryCharge,
+                message: isDinnerOpen 
+                    ? (dinnerDeliveryCharge > 0 ? "Orders Open (₹30 Delivery)" : "Preorders Open (Free Delivery)") 
+                    : "Preorders Closed"
             }
         },
         isServiceOff: menu.isServiceOff || false
@@ -364,6 +376,7 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
                     plates: existingOrder.items?.[0]?.quantity || quantity,
                     deliveryTime: slot === 'Lunch' ? '12:30–2:00 PM' : '8:00–9:00 PM',
                     paymentMode: 'COD (Cash on Delivery)',
+                    deliveryCharge: existingOrder.deliveryCharge || 0,
                     totalAmount: existingOrder.finalPrice
                 }
             });
@@ -405,40 +418,57 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
     // Determine Item & Price
     const refs = await ensureReferences();
     let selectedMenuItem;
-    let finalPrice = 0;
+    let itemsPrice = 0;
 
     // Use frontend calculated total if available (trusting frontend for now for simple extra items logic)
     // Otherwise fallback to server-side calc
-    if (req.body.totalPrice && req.body.items) {
-        // Hybrid Sunday Logic: Check Slot
-        if (menu.dayOfWeek === 'Sunday' && slot === 'Lunch') {
-            selectedMenuItem = refs.dailyItem;
-        } else if (menu.dayOfWeek === 'Sunday') {
-            selectedMenuItem = refs.sundayItem || refs.dailyItem; // Fallback
+    if (req.body.itemsTotal) {
+        itemsPrice = Number(req.body.itemsTotal);
+    } else if (req.body.totalPrice && req.body.items) {
+        if (req.body.deliveryCharge !== undefined) {
+            itemsPrice = Math.max(0, Number(req.body.totalPrice) - Number(req.body.deliveryCharge));
         } else {
-            selectedMenuItem = refs.dailyItem;
+            itemsPrice = Number(req.body.totalPrice);
         }
-        finalPrice = req.body.totalPrice;
     } else if (menu.dayOfWeek === 'Sunday') {
         // Hybrid Sunday Logic
         if (slot === 'Lunch') {
-            selectedMenuItem = refs.dailyItem;
             const dailyPrice = menu.weekdayMenu.fixedPrice || 99;
-            finalPrice = dailyPrice * quantity;
+            itemsPrice = dailyPrice * quantity;
         } else {
-            // Dinner = Special
-            selectedMenuItem = refs.sundayItem || refs.dailyItem;
             const sundayPrice = menu.sundayMenu.price || 120;
-            finalPrice = sundayPrice * quantity;
+            itemsPrice = sundayPrice * quantity;
         }
     } else {
-        selectedMenuItem = refs.dailyItem;
-        // Use dynamic price from DB, default to 99 if missing
         const dailyPrice = menu.weekdayMenu.fixedPrice || 99;
-        finalPrice = dailyPrice * quantity;
+        itemsPrice = dailyPrice * quantity;
     }
 
-    let subtotal = finalPrice;
+    if (menu.dayOfWeek === 'Sunday' && slot === 'Lunch') {
+        selectedMenuItem = refs.dailyItem;
+    } else if (menu.dayOfWeek === 'Sunday') {
+        selectedMenuItem = refs.sundayItem || refs.dailyItem; // Fallback
+    } else {
+        selectedMenuItem = refs.dailyItem;
+    }
+
+    // Delivery charge logic:
+    // Lunch after 1:00 PM (13:00) -> 30 rupees
+    // Dinner after 9:00 PM (21:00) -> 30 rupees
+    const currentMinute = now.getMinutes();
+    const totalMinutes = currentHour * 60 + currentMinute;
+    let deliveryCharge = 0;
+    if (slot === 'Lunch') {
+        if (totalMinutes >= 13 * 60) {
+            deliveryCharge = 30;
+        }
+    } else if (slot === 'Dinner') {
+        if (totalMinutes >= 21 * 60) {
+            deliveryCharge = 30;
+        }
+    }
+
+    let subtotal = itemsPrice;
     let discountAmount = 0;
     let appliedPromo = null;
 
@@ -450,11 +480,13 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
         if (promoResult.promotion && !promoResult.reason) {
             appliedPromo = promoResult.promotion;
             discountAmount = appliedPromo.calculateDiscount(subtotal);
-            finalPrice = subtotal - discountAmount;
         } else {
             return next(new AppError(promoResult.reason || 'Invalid coupon code', 400));
         }
     }
+
+    let finalPrice = subtotal + deliveryCharge - discountAmount;
+    if (finalPrice < 0) finalPrice = 0;
 
     // ✅ TOKEN SYSTEM LOGIC
     let tokensUsed = 0;
@@ -541,21 +573,26 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
             quantity: quantity,
             itemPrice: subtotal / quantity, // Approximate per unit if multiple plates
         }],
-        totalAmount: subtotal,
-        finalPrice: finalPrice, // Schema requires this
+        totalAmount: subtotal + deliveryCharge,
+        deliveryCharge: deliveryCharge,
+        finalPrice: Math.round(finalPrice), // Schema requires this
         discount: discountAmount,
         tokensUsed: tokensUsed,
         promoCode: appliedPromo ? appliedPromo.code : undefined,
-        paymentMethod: 'cash_on_delivery',
-        status: 'Pending',
+        paymentMethod: req.body.paymentMethod || 'cash_on_delivery',
+        status: req.body.paymentMethod === 'online' ? 'Confirmed' : 'Pending',
         assignedTo, // ✅ Auto-assign delivery boy
         metadata: {
             dailyMenuDate: todayStr,
             isHomemade: true,
             customerName: customerName,
             customerPhone: mobileNumber,
+            customerEmail: req.user?.email || req.body.customerEmail || req.body.email || '',
             mealType: slot,
             orderedItems: req.body.items ? req.body.items.join(', ') : '', // Store detailed items string
+            customAddress: customAddress,
+            area: area,
+            deliveryCharge: deliveryCharge,
             idempotencyKey: idempotencyKey || null
         }
     });
@@ -573,7 +610,7 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
 
     // Send Notification Email to Admin
     try {
-        const adminEmail = process.env.ADMIN_EMAIL || 'admin@tommalu.com'; // Fallback
+        const adminEmail = process.env.ADMIN_EMAIL || process.env.EMAIL_USER || 'tommaludelivery@gmail.com';
         await emailService.sendHomemadeFoodOrderNotification(adminEmail, {
             orderNumber: order._id.toString().slice(-6).toUpperCase(), // Simulating nice ID
             customerName,
@@ -587,11 +624,28 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
                 city: 'Jaipur',
                 pincode: '303002'
             },
-            specialInstructions: slot === 'Lunch' ? 'Lunch Slot' : 'Dinner Slot'
+            specialInstructions: `${slot === 'Lunch' ? 'Lunch Slot' : 'Dinner Slot'}${deliveryCharge > 0 ? ` (Delivery Charge: ₹${deliveryCharge})` : ' (Free Delivery)'}`
         });
+        console.log('✅ Homemade food order email sent to admin:', adminEmail);
     } catch (emailErr) {
-        console.error("Failed to send email notification to admin:", emailErr);
-        // Don't fail the request, just log it
+        console.error("Failed to send email notification to admin:", emailErr.message);
+    }
+
+    // Send Confirmation Email to Customer
+    try {
+        const customerEmail = req.user?.email || req.body.customerEmail || req.body.email;
+        if (customerEmail) {
+            emailService.sendHomemadeFoodOrderStatusUpdate(customerEmail, {
+                orderNumber: order._id.toString().slice(-6).toUpperCase(),
+                customerName,
+                foodName: selectedMenuItem.name,
+                status: 'pending',
+                finalAmount: finalPrice
+            }).then(() => console.log('✅ Homemade food order confirmation email sent to customer:', customerEmail))
+              .catch(err => console.error("Failed to send customer order confirmation email:", err.message));
+        }
+    } catch (custEmailErr) {
+        console.error("Error in customer order confirmation email block:", custEmailErr.message);
     }
 
     // Trigger Admin RTDB & FCM Notifications asynchronously
@@ -600,16 +654,21 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
         try {
             const firebase = require('../utils/firebase');
             
-            // 1. RTDB Event for live dashboard update (Phase 5)
-            firebase.emitToAdmin('NEW_ORDER', {
+            // 1. RTDB Event for live dashboard update
+            const orderPayload = {
                 orderId: order._id,
                 orderNumber: order._id.toString().slice(-6).toUpperCase(),
                 customerName: customerName,
                 area: area,
                 amount: finalPrice,
+                finalPrice: finalPrice,
                 mealType: slot,
+                status: 'Pending',
+                isHomemade: true,
                 timestamp: new Date().toISOString()
-            });
+            };
+            firebase.emitToAdmin('NEW_ORDER', orderPayload);
+            firebase.emitToAdmin('new_order', orderPayload);
 
             // 2. FCM Push Notification (Phase 4)
             const title = `🔔 New Tommalu Order`;
@@ -632,6 +691,7 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
             plates: quantity,
             deliveryTime: slot === 'Lunch' ? '12:30–2:00 PM' : '8:00–9:00 PM',
             paymentMode: 'COD (Cash on Delivery)',
+            deliveryCharge: deliveryCharge,
             totalAmount: finalPrice
         }
     });
@@ -709,21 +769,36 @@ exports.confirmOrder = catchAsync(async (req, res, next) => {
     order.status = 'Confirmed';
     await order.save();
 
-    // Send Confirmation Email to Customer
+    // Send Confirmation Email & Push Notification to Customer
     try {
-        const User = require('../models/user');
-        const customer = await User.findById(order.userId).select('email name');
-        if (customer && customer.email) {
-            await emailService.sendHomemadeFoodOrderStatusUpdate(customer.email, {
-                orderNumber: order._id.toString().slice(-6).toUpperCase(),
-                customerName: order.metadata?.customerName || customer.name || 'Customer',
+        let customerEmail = order.metadata?.customerEmail;
+        let customerName = order.metadata?.customerName || 'Customer';
+
+        if (!customerEmail && order.userId) {
+            const customerDoc = await User.findById(order.userId).select('email name');
+            if (customerDoc) {
+                customerEmail = customerDoc.email;
+                if (customerDoc.name) customerName = customerDoc.name;
+            }
+        }
+
+        if (customerEmail) {
+            emailService.sendHomemadeFoodOrderStatusUpdate(customerEmail, {
+                orderNumber: order.orderNumber || order._id.toString().slice(-6).toUpperCase(),
+                customerName,
                 foodName: order.items?.[0]?.itemName || 'Tiffin',
                 status: 'confirmed',
                 finalAmount: order.finalPrice
-            });
+            }).then(() => console.log('✅ Confirmation email sent to customer:', customerEmail))
+              .catch(err => console.error('Failed to send confirmation email:', err.message));
         }
+
+        // Notify customer on phone (FCM) and web (Firebase RTDB)
+        notificationService.notifyCustomerOrderUpdate(order, 'Confirmed').catch(err => {
+            console.error('Error sending confirmation push notification to customer:', err.message);
+        });
     } catch (emailErr) {
-        console.error('Failed to send confirmation email:', emailErr);
+        console.error('Failed in customer notification block on order confirmation:', emailErr.message);
     }
 
     res.status(200).json({
@@ -805,13 +880,22 @@ exports.getAllOrders = catchAsync(async (req, res, next) => {
 
     // Status Filter
     if (status && status !== 'all') {
-        homemadeFilter.status = status;
+        const clean = status.toString().trim().toLowerCase().replace(/[\s_-]+/g, '');
         const statusMap = {
-            'pending': 'Pending', 'confirmed': 'Confirmed', 'delivered': 'Delivered',
-            'cancelled': 'Cancelled', 'out_for_delivery': 'OutForDelivery',
-            'preparing': 'preparing', 'ready': 'ready'
+            'pending': ['Pending', 'pending', 'payment_pending', 'payment_received'],
+            'new': ['Pending', 'pending', 'payment_pending', 'payment_received'],
+            'confirmed': ['Confirmed', 'confirmed'],
+            'accepted': ['Confirmed', 'confirmed'],
+            'preparing': ['preparing', 'Preparing'],
+            'ready': ['ready', 'Ready'],
+            'outfordelivery': ['OutForDelivery', 'out_for_delivery'],
+            'delivered': ['Delivered', 'delivered'],
+            'cancelled': ['Cancelled', 'cancelled'],
+            'rejected': ['Rejected', 'rejected']
         };
-        orderFilter.status = statusMap[status] || status;
+        const targetStatuses = statusMap[clean] || [status];
+        orderFilter.status = { $in: targetStatuses };
+        homemadeFilter.status = { $in: targetStatuses };
     }
 
     // Type Filter (Subscription vs Daily Meal)
@@ -998,31 +1082,45 @@ exports.updateOrderStatus = catchAsync(async (req, res, next) => {
             console.error('Error granting tokens on delivery:', err);
         }
     }
-    // ✅ Send Status Update Email to Customer
+    // ✅ Send Status Update Email & Push Notification to Customer
     try {
-        const customerId = source === 'new' ? order.userId : (order.userId || order.customerId);
-        if (customerId) {
-            const customer = await User.findById(customerId).select('email name');
-            if (customer && customer.email) {
-                let simpleFoodName = 'Homemade Thali';
-                if (source === 'new') {
-                    if (order.metadata?.mealType) simpleFoodName = `${order.metadata.mealType} Thali`;
-                    else if (order.items?.[0]?.itemName) simpleFoodName = order.items[0].itemName;
-                } else {
-                    simpleFoodName = order.foodName || order.foodItem?.name || 'Homemade Item';
-                }
+        let customerEmail = order.metadata?.customerEmail;
+        let customerName = source === 'new' ? (order.metadata?.customerName || 'Customer') : (order.customerName || 'Customer');
 
-                await emailService.sendHomemadeFoodOrderStatusUpdate(customer.email, {
-                    orderNumber: order.orderNumber || order._id.toString().slice(-6).toUpperCase(),
-                    customerName: source === 'new' ? (order.metadata?.customerName || customer.name || 'Customer') : (order.customerName || customer.name || 'Customer'),
-                    foodName: simpleFoodName,
-                    status: status.toLowerCase(),
-                    finalAmount: source === 'new' ? order.finalPrice : order.finalAmount
-                });
+        const customerId = source === 'new' ? order.userId : (order.userId || order.customerId);
+        if (!customerEmail && customerId) {
+            const customer = await User.findById(customerId).select('email name');
+            if (customer) {
+                customerEmail = customer.email;
+                if (customer.name) customerName = customer.name;
             }
         }
+
+        if (customerEmail) {
+            let simpleFoodName = 'Homemade Thali';
+            if (source === 'new') {
+                if (order.metadata?.mealType) simpleFoodName = `${order.metadata.mealType} Thali`;
+                else if (order.items?.[0]?.itemName) simpleFoodName = order.items[0].itemName;
+            } else {
+                simpleFoodName = order.foodName || order.foodItem?.name || 'Homemade Item';
+            }
+
+            emailService.sendHomemadeFoodOrderStatusUpdate(customerEmail, {
+                orderNumber: order.orderNumber || order._id.toString().slice(-6).toUpperCase(),
+                customerName,
+                foodName: simpleFoodName,
+                status: status.toLowerCase(),
+                finalAmount: source === 'new' ? order.finalPrice : order.finalAmount
+            }).then(() => console.log(`✅ Order status update email sent to customer (${customerEmail}) for status: ${status}`))
+              .catch(err => console.error('Failed to send status update email:', err.message));
+        }
+
+        // Send Push Notification (FCM) & RTDB Notification to customer
+        notificationService.notifyCustomerOrderUpdate(order, status).catch(err => {
+            console.error('Error sending order update push notification to customer:', err.message);
+        });
     } catch (emailErr) {
-        console.error('Failed to send status update email:', emailErr);
+        console.error('Failed to send status update email or notification:', emailErr.message);
     }
 
     // Return formatted

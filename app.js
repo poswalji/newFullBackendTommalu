@@ -189,6 +189,11 @@ app.use("/api/delivery-boys", require("./routes/deliveryBoyRoutes"));
 // app.use("/api/admin/homemade-food", require("./routes/homemadeFoodRoutes")); // Moved up
 app.use("/api/homemade", require("./routes/homemadeFoodRoutes")); // Public access alias
 
+// Razorpay Standard Web Checkout direct routes (Step 1 & Step 3)
+const razorpayController = require("./controllers/razorpayController");
+app.post("/api/create-order", razorpayController.createRazorpayOrder);
+app.post("/api/verify-payment", razorpayController.verifyRazorpayPayment);
+
 // 404 handler for undefined routes - must be before error middleware
 app.use((req, res, next) => {
   const err = new Error(`Route ${req.originalUrl} not found`);

@@ -29,32 +29,66 @@ const mapStatus = (status) => {
 };
 
 const mapStatusToOriginal = (normalizedStatus, source) => {
-    // Map normalized status back to original schema enum when saving
-    const status = normalizedStatus.toUpperCase();
+    if (!normalizedStatus) return source === 'legacy' ? 'pending' : 'Pending';
+    // Clean string: remove underscores, hyphens, and spaces to match easily
+    const clean = normalizedStatus.toString().trim().toLowerCase().replace(/[\s_-]+/g, '');
+
     if (source === 'legacy') {
-        switch (status) {
-            case 'NEW': return 'pending';
-            case 'ACCEPTED': return 'confirmed';
-            case 'PREPARING': return 'preparing';
-            case 'READY': return 'ready';
-            case 'OUT_FOR_DELIVERY': return 'out_for_delivery';
-            case 'DELIVERED': return 'delivered';
-            case 'CANCELLED': return 'cancelled';
-            case 'REJECTED': return 'cancelled'; // legacy doesn't have rejected
-            default: return 'pending';
+        switch (clean) {
+            case 'new':
+            case 'pending':
+            case 'paymentpending':
+            case 'paymentreceived':
+                return 'pending';
+            case 'accepted':
+            case 'confirmed':
+                return 'confirmed';
+            case 'preparing':
+                return 'preparing';
+            case 'ready':
+                return 'ready';
+            case 'outfordelivery':
+                return 'out_for_delivery';
+            case 'delivered':
+                return 'delivered';
+            case 'cancelled':
+            case 'refundinitiated':
+            case 'refundcompleted':
+                return 'cancelled';
+            case 'rejected':
+                return 'cancelled';
+            default:
+                return 'pending';
         }
     } else {
-        // New Order schema enum matches exact casing required or uses TitleCase for some
-        switch (status) {
-            case 'NEW': return 'Pending';
-            case 'ACCEPTED': return 'Confirmed';
-            case 'PREPARING': return 'preparing';
-            case 'READY': return 'ready';
-            case 'OUT_FOR_DELIVERY': return 'OutForDelivery';
-            case 'DELIVERED': return 'Delivered';
-            case 'CANCELLED': return 'Cancelled';
-            case 'REJECTED': return 'Rejected';
-            default: return 'Pending';
+        // New Order schema enum matches exact casing required:
+        // "Pending", "Confirmed", "OutForDelivery", "Delivered", "Cancelled", "Rejected", "preparing", "ready"
+        switch (clean) {
+            case 'new':
+            case 'pending':
+            case 'paymentpending':
+            case 'paymentreceived':
+                return 'Pending';
+            case 'accepted':
+            case 'confirmed':
+                return 'Confirmed';
+            case 'preparing':
+                return 'preparing';
+            case 'ready':
+                return 'ready';
+            case 'outfordelivery':
+                return 'OutForDelivery';
+            case 'delivered':
+                return 'Delivered';
+            case 'cancelled':
+            case 'refundinitiated':
+            case 'refundcompleted':
+                return 'Cancelled';
+            case 'rejected':
+                return 'Rejected';
+            default:
+                // If it's already one of the valid enums, preserve it instead of blindly resetting to Pending
+                return normalizedStatus;
         }
     }
 };

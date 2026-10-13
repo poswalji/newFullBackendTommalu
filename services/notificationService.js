@@ -228,55 +228,96 @@ exports.notifyStoreOwnerNewOrder = async (order) => {
  */
 exports.notifyCustomerOrderUpdate = async (order, status) => {
   try {
-    const statusMessages = {
-      'Confirmed': 'Your order has been confirmed',
-      'OutForDelivery': 'Your order is out for delivery',
-      'Delivered': 'Your order has been delivered',
-      'Cancelled': 'Your order has been cancelled',
-      'Rejected': 'Your order has been rejected'
-    };
+    const cleanStatus = (status || '').toString().toLowerCase().replace(/[\s_-]+/g, '');
+    let pushTitle = 'Order Status Updated';
+    let pushBody = `Order #${order._id.toString().slice(-6).toUpperCase()} status updated to ${status}`;
 
-    const title = statusMessages[status] || 'Order Status Updated';
-    const message = `Order #${order._id.toString().slice(-6)} status updated to ${status}`;
+    if (cleanStatus === 'confirmed' || cleanStatus === 'accepted') {
+      pushTitle = 'Order Confirmed! 🎉';
+      pushBody = `Your order #${order._id.toString().slice(-6).toUpperCase()} is confirmed and being prepared!`;
+    } else if (cleanStatus === 'preparing') {
+      pushTitle = 'Food is Being Prepared! 👨‍🍳';
+      pushBody = `Our chef is preparing your delicious meal.`;
+    } else if (cleanStatus === 'ready') {
+      pushTitle = 'Your Order is Ready! 🍽️';
+      pushBody = `Your meal is ready and will be picked up soon.`;
+    } else if (cleanStatus === 'outfordelivery') {
+      pushTitle = 'Out for Delivery! 🛵';
+      pushBody = `Your meal is on the way to your address!`;
+    } else if (cleanStatus === 'delivered') {
+      pushTitle = 'Order Delivered! 🎊';
+      pushBody = `Your order has been delivered. Enjoy your food!`;
+    } else if (cleanStatus === 'cancelled' || cleanStatus === 'rejected') {
+      pushTitle = 'Order Cancelled ❌';
+      pushBody = `Your order #${order._id.toString().slice(-6).toUpperCase()} has been cancelled.`;
+    }
 
-    // ✅ FIXED: Ensure userId is converted to string
-    const customerUserId = order.userId?._id?.toString() || order.userId?.toString() || order.userId;
+    const title = pushTitle;
+    const message = pushBody;
 
-    await this.createNotification({
-      userId: customerUserId,
-      title,
-      message,
-      type: 'order_status_updated',
-      relatedId: order._id,
-      relatedModel: 'Order',
-      metadata: {
-        orderId: order._id,
-        status,
-        previousStatus: order.status
+    // Ensure userId is converted to string; if guest or missing, try finding user by phone/email
+    let customerUserId = order.userId?._id?.toString() || order.userId?.toString() || order.userId;
+    if (!customerUserId || customerUserId === 'undefined') {
+      try {
+        const phone = order.metadata?.customerPhone;
+        const email = order.metadata?.customerEmail;
+        if (phone || email) {
+          const userDoc = await User.findOne({ $or: [{ phone: phone }, { email: email }] }).select('_id');
+          if (userDoc) customerUserId = userDoc._id.toString();
+        }
+      } catch (findErr) {
+        // Ignore
       }
-    });
+    }
 
-    // Emit specific event for customer via Firebase
+    if (customerUserId) {
+      await this.createNotification({
+        userId: customerUserId,
+        title,
+        message,
+        type: 'order_status_updated',
+        relatedId: order._id,
+        relatedModel: 'Order',
+        metadata: {
+          orderId: order._id,
+          status,
+          previousStatus: order.status
+        }
+      });
+    }
+
+    // Emit specific event for customer via Firebase & FCM Push Notification
     try {
       const orderPopulated = await Order.findById(order._id)
         .populate('userId', 'name email')
         .populate('storeId', 'storeName');
 
-      // ✅ FIXED: Reuse customerUserId (already defined above)
-      emitToUser(customerUserId, 'order_status_update', {
-        orderId: order._id?.toString() || order._id,
-        status,
-        message,
-        customerName: orderPopulated?.userId?.name || order.userId?.name || 'Customer'
-      });
+      const { emitToUser, emitToAdmin, sendUserPushNotification } = require('../utils/firebase');
+
+      if (customerUserId) {
+        emitToUser(customerUserId, 'order_status_update', {
+          orderId: order._id?.toString() || order._id,
+          status,
+          title: pushTitle,
+          message: pushBody,
+          customerName: orderPopulated?.userId?.name || order.metadata?.customerName || 'Customer'
+        });
+
+        // Trigger FCM Mobile / Web Push Notification to customer
+        sendUserPushNotification(customerUserId, pushTitle, pushBody, {
+          orderId: order._id?.toString() || order._id,
+          type: 'order_status_update',
+          status: status,
+          url: `/customer/orders`
+        }).catch(err => console.warn('Error sending FCM push to customer:', err.message));
+      }
 
       // Also emit to admin role for order status updates
-      const { emitToAdmin } = require('../utils/firebase');
       emitToAdmin('order_status_update', {
         orderId: order._id?.toString() || order._id,
         status,
         message,
-        customerName: orderPopulated?.userId?.name || 'Customer',
+        customerName: orderPopulated?.userId?.name || order.metadata?.customerName || 'Customer',
         deliveryAddress: orderPopulated?.deliveryAddress
       });
     } catch (firebaseError) {
@@ -285,25 +326,31 @@ exports.notifyCustomerOrderUpdate = async (order, status) => {
 
     // Send email notification to customer for order tracking
     try {
-      const customer = await User.findById(order.userId).select('email name');
-      if (customer && customer.email) {
-        const orderPopulated = await Order.findById(order._id)
-          .populate('userId', 'name email')
-          .populate('storeId', 'storeName');
+      const customerUserId = order.userId?._id || order.userId;
+      let customerEmail = order.userId?.email || order.metadata?.customerEmail;
+      let customerName = order.userId?.name || order.metadata?.customerName || 'Customer';
 
-        emailService.sendOrderTrackingEmail(customer.email, {
+      if (!customerEmail && customerUserId) {
+        const customerDoc = await User.findById(customerUserId).select('email name');
+        if (customerDoc) {
+          customerEmail = customerDoc.email;
+          if (customerDoc.name) customerName = customerDoc.name;
+        }
+      }
+
+      if (customerEmail) {
+        await emailService.sendOrderTrackingEmail(customerEmail, {
           orderId: order._id,
           status,
-          orderNumber: order._id.toString().slice(-6),
-          customerName: orderPopulated?.userId?.name || customer.name || 'Customer',
+          orderNumber: order.orderNumber || order._id.toString().slice(-6).toUpperCase(),
+          customerName,
           finalPrice: order.finalPrice,
           deliveryAddress: order.deliveryAddress
-        }).catch(err => {
-          console.error('Error sending order tracking email to customer:', err);
         });
+        console.log(`✅ Order tracking email sent to customer (${customerEmail}) for status: ${status}`);
       }
     } catch (emailError) {
-      console.error('Error sending email to customer:', emailError);
+      console.error('Error sending email to customer:', emailError.message);
     }
   } catch (error) {
     console.error('Error notifying customer:', error);
@@ -341,14 +388,19 @@ exports.notifyAdminNewOrder = async (order) => {
     // Emit to admin role via Firebase
     try {
       const { emitToAdmin } = require('../utils/firebase');
-      emitToAdmin('new_order', {
+      const adminOrderPayload = {
         orderId: order._id?.toString() || order._id,
+        orderNumber: order._id?.toString().slice(-6).toUpperCase(),
         storeId: order.storeId?.toString() || order.storeId,
         userId: order.userId?.toString() || order.userId,
         finalPrice: order.finalPrice,
+        amount: order.finalPrice,
+        customerName: order.userId?.name || 'Customer',
         status: order.status,
         createdAt: order.createdAt ? order.createdAt.toISOString() : new Date().toISOString()
-      });
+      };
+      emitToAdmin('new_order', adminOrderPayload);
+      emitToAdmin('NEW_ORDER', adminOrderPayload);
     } catch (firebaseError) {
       console.warn('Firebase emit failed for admin:', firebaseError.message);
     }

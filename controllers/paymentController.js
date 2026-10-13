@@ -316,3 +316,9 @@ exports.getPaymentById = asyncHandler(async (req, res, next) => {
   });
 });
 
+// Razorpay Standard Checkout endpoints
+const razorpayController = require('./razorpayController');
+exports.createRazorpayOrder = razorpayController.createRazorpayOrder;
+exports.verifyRazorpayPayment = razorpayController.verifyRazorpayPayment;
+
+

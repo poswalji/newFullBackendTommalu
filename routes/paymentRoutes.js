@@ -1,9 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const paymentController = require('../controllers/paymentController');
+const razorpayController = require('../controllers/razorpayController');
 const { protect, restrictTo } = require('../middleware/authMiddleware');
 
-// All routes require authentication
+// Razorpay Standard Web Checkout endpoints (Step 1 & Step 3)
+router.post('/create-order', razorpayController.createRazorpayOrder);
+router.post('/verify-payment', razorpayController.verifyRazorpayPayment);
+
+// All subsequent routes require authentication
 router.use(protect);
 
 // Customer routes

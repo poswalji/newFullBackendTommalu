@@ -65,6 +65,17 @@ exports.getAdmin = () => {
   return admin;
 };
 
+// Helper to safely strip undefined values that cause Firebase RTDB set() to fail
+const sanitizeForFirebase = (val) => {
+  if (val === undefined) return null;
+  if (!val) return val;
+  try {
+    return JSON.parse(JSON.stringify(val));
+  } catch (e) {
+    return val;
+  }
+};
+
 // Helper functions to write to Firebase Realtime Database
 exports.emitToUser = (userId, event, data) => {
   try {
@@ -73,7 +84,7 @@ exports.emitToUser = (userId, event, data) => {
     const notificationRef = userRef.push();
     notificationRef.set({
       event,
-      data,
+      data: sanitizeForFirebase(data),
       timestamp: admin.database.ServerValue.TIMESTAMP,
       read: false
     });
@@ -90,7 +101,7 @@ exports.emitToStoreOwner = (storeOwnerId, event, data) => {
     const notificationRef = userRef.push();
     notificationRef.set({
       event,
-      data,
+      data: sanitizeForFirebase(data),
       timestamp: admin.database.ServerValue.TIMESTAMP,
       read: false
     });
@@ -106,7 +117,7 @@ exports.emitToAdmin = (event, data) => {
     const notificationRef = adminRef.push();
     notificationRef.set({
       event,
-      data,
+      data: sanitizeForFirebase(data),
       timestamp: admin.database.ServerValue.TIMESTAMP,
       read: false
     });
@@ -122,7 +133,7 @@ exports.emitToRole = (role, event, data) => {
     const notificationRef = roleRef.push();
     notificationRef.set({
       event,
-      data,
+      data: sanitizeForFirebase(data),
       timestamp: admin.database.ServerValue.TIMESTAMP,
       read: false
     });
@@ -138,7 +149,7 @@ exports.emitToAll = (event, data) => {
     const notificationRef = allRef.push();
     notificationRef.set({
       event,
-      data,
+      data: sanitizeForFirebase(data),
       timestamp: admin.database.ServerValue.TIMESTAMP,
       read: false
     });
@@ -225,4 +236,66 @@ exports.sendAdminPushNotification = async (title, body, dataPayload = {}) => {
     console.error('❌ FCM sendAdminPushNotification Error:', error.message);
   }
 };
+
+// FCM Push Notifications for Specific User (Customer)
+exports.sendUserPushNotification = async (userId, title, body, dataPayload = {}) => {
+  try {
+    if (!userId) return;
+    const adminInst = exports.getAdmin();
+    const User = require('../models/user');
+    const mongoose = require('mongoose');
+
+    let userDoc = null;
+    const userIdStr = userId?.toString();
+
+    if (mongoose.isValidObjectId(userIdStr)) {
+      userDoc = await User.findById(userIdStr);
+    }
+
+    if (!userDoc || !userDoc.fcmTokens || userDoc.fcmTokens.length === 0) {
+      return;
+    }
+
+    let tokens = [...new Set(userDoc.fcmTokens.filter(Boolean))];
+    if (tokens.length === 0) return;
+
+    // Convert all payload values to strings for FCM
+    const stringifiedData = {};
+    Object.keys(dataPayload).forEach(k => {
+      stringifiedData[k] = String(dataPayload[k]);
+    });
+
+    const message = {
+      notification: {
+        title: title,
+        body: body,
+      },
+      data: stringifiedData,
+      tokens: tokens,
+    };
+
+    const response = await adminInst.messaging().sendEachForMulticast(message);
+    console.log(`[FCM] User Push Notification sent to ${userDoc.email || userDoc._id}. Success: ${response.successCount}, Failed: ${response.failureCount}`);
+
+    // Cleanup failed tokens
+    if (response.failureCount > 0) {
+      const failedTokens = [];
+      response.responses.forEach((resp, idx) => {
+        if (!resp.success) {
+          failedTokens.push(tokens[idx]);
+        }
+      });
+      if (failedTokens.length > 0) {
+        await User.updateOne(
+          { _id: userDoc._id },
+          { $pullAll: { fcmTokens: failedTokens } }
+        );
+        console.log(`[FCM] Cleaned up ${failedTokens.length} invalid user tokens.`);
+      }
+    }
+  } catch (error) {
+    console.error('❌ FCM sendUserPushNotification Error:', error.message);
+  }
+};
+
 

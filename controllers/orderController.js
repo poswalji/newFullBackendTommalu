@@ -249,8 +249,8 @@ exports.createOrder = asyncHandler(async (req, res, next) => {
         // Note: We'll track usage after order is created to ensure order ID is available
     }
 
-    // ✅ Force payment method to cash_on_delivery only
-    const paymentMethod = 'cash_on_delivery';
+    // ✅ Support cash_on_delivery or online payment
+    const paymentMethod = req.body.paymentMethod || 'cash_on_delivery';
 
     // Recalculate final price with validated discount
     const itemsTotal = items.reduce((sum, item) => {
@@ -284,7 +284,8 @@ exports.createOrder = asyncHandler(async (req, res, next) => {
         deliveryCharge: deliveryCharge, // Store delivery charge
         finalPrice: validatedFinalPrice,
         deliveryAddress,
-        paymentMethod, // ✅ Only cash on delivery
+        paymentMethod,
+        status: paymentMethod === 'online' ? 'Confirmed' : 'Pending',
         area, // ✅ Save the area
         assignedTo, // ✅ Auto-assign delivery boy
         metadata: {
@@ -384,14 +385,15 @@ exports.createOrder = asyncHandler(async (req, res, next) => {
     // ✅ Send Notification Email to Admin
     try {
 
-        const adminEmail = process.env.ADMIN_EMAIL || 'admin@tommalu.com';
+        const adminEmail = process.env.ADMIN_EMAIL || process.env.EMAIL_USER || 'tommaludelivery@gmail.com';
         emailService.sendNewOrderEmailToStoreOwner(adminEmail, {
             orderId: newOrder._id,
             orderNumber: newOrder._id.toString().slice(-6).toUpperCase(),
             customerName: user.name || 'Customer',
             finalPrice: newOrder.finalPrice,
             items: newOrder.items
-        }).catch(err => console.error('Failed to send new order email to admin:', err));
+        }).then(() => console.log('✅ New order email sent to admin:', adminEmail))
+          .catch(err => console.error('Failed to send new order email to admin:', err.message));
     } catch (emailErr) {
         console.error('Error in email sending block:', emailErr);
     }
