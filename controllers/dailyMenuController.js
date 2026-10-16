@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const DailyMenu = require('../models/dailyMenu');
 const Order = require('../models/orderSchema');
+const Payment = require('../models/payment');
 const AppError = require('../utils/appError');
 const catchAsync = require('../utils/asyncHandler');
 const emailService = require('../utils/emailService');
@@ -593,9 +594,43 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
             customAddress: customAddress,
             area: area,
             deliveryCharge: deliveryCharge,
-            idempotencyKey: idempotencyKey || null
+            idempotencyKey: idempotencyKey || null,
+            paymentStatus: req.body.paymentMethod === 'online' ? 'Paid' : 'Pending',
+            paymentGateway: req.body.paymentMethod === 'online' ? 'razorpay' : null,
+            razorpayPaymentId: req.body.razorpayPaymentId || null,
+            razorpayOrderId: req.body.razorpayOrderId || null,
+            paymentMethod: req.body.paymentMethod || 'cash_on_delivery'
         }
     });
+
+    // If online payment was completed through Razorpay UPI / Card, create payment record
+    if (req.body.paymentMethod === 'online' && req.body.razorpayPaymentId) {
+        try {
+            const paymentDoc = await Payment.create({
+                orderId: order._id,
+                userId: order.userId,
+                storeId: order.storeId,
+                amount: Math.round(finalPrice),
+                commissionRate: 10,
+                commissionAmount: Math.round((finalPrice * 10) / 100),
+                storePayoutAmount: Math.round(finalPrice - ((finalPrice * 10) / 100)),
+                paymentMethod: 'online',
+                paymentGateway: 'razorpay',
+                transactionId: req.body.razorpayPaymentId,
+                gatewayOrderId: req.body.razorpayOrderId || '',
+                gatewayResponse: {
+                    razorpay_payment_id: req.body.razorpayPaymentId,
+                    razorpay_order_id: req.body.razorpayOrderId
+                },
+                status: 'completed',
+                payoutStatus: 'eligible'
+            });
+            order.paymentId = paymentDoc._id;
+            await order.save();
+        } catch (payErr) {
+            console.error("Failed to create Payment document for online order:", payErr);
+        }
+    }
 
     // Update Stats
     if (slot === 'Lunch') menu.stats.lunchOrders += quantity;
@@ -655,6 +690,7 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
             const firebase = require('../utils/firebase');
             
             // 1. RTDB Event for live dashboard update
+            const isOnline = req.body.paymentMethod === 'online';
             const orderPayload = {
                 orderId: order._id,
                 orderNumber: order._id.toString().slice(-6).toUpperCase(),
@@ -663,16 +699,19 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
                 amount: finalPrice,
                 finalPrice: finalPrice,
                 mealType: slot,
-                status: 'Pending',
+                status: isOnline ? 'Confirmed' : 'Pending',
                 isHomemade: true,
+                paymentMethod: req.body.paymentMethod || 'cash_on_delivery',
+                isPaid: isOnline,
                 timestamp: new Date().toISOString()
             };
             firebase.emitToAdmin('NEW_ORDER', orderPayload);
             firebase.emitToAdmin('new_order', orderPayload);
 
             // 2. FCM Push Notification (Phase 4)
-            const title = `🔔 New Tommalu Order`;
-            const body = `Order #${order._id.toString().slice(-6).toUpperCase()} • ₹${finalPrice} • ${area}`;
+            const payText = isOnline ? 'Paid (UPI Online)' : 'COD';
+            const title = `🔔 New Tommalu Order (${payText})`;
+            const body = `Order #${order._id.toString().slice(-6).toUpperCase()} • ₹${finalPrice} [${payText}] • ${area}`;
             await firebase.sendAdminPushNotification(title, body, {
                 orderId: order._id.toString(),
                 type: 'new_order',
@@ -683,6 +722,7 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
         }
     }, 0);
 
+    const isOnline = req.body.paymentMethod === 'online';
     res.status(201).json({
         success: true,
         data: {
@@ -690,7 +730,8 @@ exports.placeOrder = catchAsync(async (req, res, next) => {
             mealType: slot,
             plates: quantity,
             deliveryTime: slot === 'Lunch' ? '12:30–2:00 PM' : '8:00–9:00 PM',
-            paymentMode: 'COD (Cash on Delivery)',
+            paymentMode: isOnline ? 'Online (UPI / Razorpay)' : 'COD (Cash on Delivery)',
+            paymentStatus: isOnline ? 'Paid' : 'Pending',
             deliveryCharge: deliveryCharge,
             totalAmount: finalPrice
         }

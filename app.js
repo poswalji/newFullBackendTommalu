@@ -157,6 +157,19 @@ const connectDB = async () => {
 // Middleware to ensure database connection before handling requests
 // This must be before routes are registered
 app.use(async (req, res, next) => {
+  // Allow health check and standalone Razorpay endpoints without blocking on DB
+  const isStandalonePaymentRoute =
+    req.path === '/' ||
+    req.path === '/api/create-order' ||
+    req.path === '/create-order' ||
+    req.path === '/api/verify-payment' ||
+    req.path === '/verify-payment';
+
+  if (isStandalonePaymentRoute) {
+    connectDB().catch(() => {});
+    return next();
+  }
+
   try {
     await connectDB();
     next();
@@ -193,6 +206,8 @@ app.use("/api/homemade", require("./routes/homemadeFoodRoutes")); // Public acce
 const razorpayController = require("./controllers/razorpayController");
 app.post("/api/create-order", razorpayController.createRazorpayOrder);
 app.post("/api/verify-payment", razorpayController.verifyRazorpayPayment);
+app.post("/create-order", razorpayController.createRazorpayOrder);
+app.post("/verify-payment", razorpayController.verifyRazorpayPayment);
 
 // 404 handler for undefined routes - must be before error middleware
 app.use((req, res, next) => {
